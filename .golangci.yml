@@ -1,4 +1,4 @@
-version: 2
+version: "2"
 
 run:
   timeout: 5m
@@ -17,45 +17,3 @@ linters:
     - unparam        # Detect unused function parameters
     - gocritic       # Diagnostics for bugs, performance and style
     - revive         # Fast, configurable, extensible linter
-
-formatters:
-  enable:
-    - gofmt          # Format code
-    - goimports      # Format imports
-
-formatters-settings:
-  goimports:
-    local: github.com/sebasr/avt-service
-
-linters-settings:
-  revive:
-    rules:
-      - name: exported
-        severity: warning
-        disabled: false
-      - name: blank-imports
-      - name: context-as-argument
-      - name: dot-imports
-      - name: error-return
-      - name: error-strings
-      - name: error-naming
-      - name: if-return
-      - name: increment-decrement
-      - name: var-naming
-      - name: package-comments
-      - name: range
-      - name: receiver-naming
-      - name: indent-error-flow
-      - name: superfluous-else
-      - name: unreachable-code
-
-issues:
-  max-issues-per-linter: 0
-  max-same-issues: 0
-  
-  exclude-rules:
-    # Exclude some linters from running on tests files
-    - path: _test\.go
-      linters:
-        - gosec
-        - errcheck
