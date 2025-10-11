@@ -49,24 +49,20 @@ make clean        # Remove build artifacts
 make deps         # Download dependencies
 ```
 
-### Testing with curl
+## Running the Service
 
-Test the hello endpoint:
+Start the server:
 
 ```bash
-curl http://localhost:8080/
+make run
+# or
+go run cmd/server/main.go
 ```
 
-Test the health endpoint:
+The service will listen on port 8080 by default. You can change the port using the `PORT` environment variable:
 
 ```bash
-curl http://localhost:8080/health
-```
-
-Test the greeting endpoint:
-
-```bash
-curl http://localhost:8080/api/greeting/YourName
+PORT=3000 make run
 ```
 
 ## API Endpoints
@@ -75,7 +71,7 @@ curl http://localhost:8080/api/greeting/YourName
 
 **Endpoint:** `POST /api/telemetry`
 
-Receives telemetry data from RaceBox devices (via the Flutter app) and logs it to the console.
+Receives telemetry data and logs it to the console.
 
 **Request Body:** JSON
 
