@@ -69,6 +69,101 @@ Test the greeting endpoint:
 curl http://localhost:8080/api/greeting/YourName
 ```
 
+## API Endpoints
+
+### Telemetry Ingestion
+
+**Endpoint:** `POST /api/telemetry`
+
+Receives telemetry data from RaceBox devices (via the Flutter app) and logs it to the console.
+
+**Request Body:** JSON
+
+```json
+{
+  "iTOW": 118286240,
+  "timestamp": "2022-01-10T08:51:08.239Z",
+  "gps": {
+    "latitude": 42.6719035,
+    "longitude": 23.2887238,
+    "wgsAltitude": 625.761,
+    "mslAltitude": 590.095,
+    "speed": 125.5,
+    "heading": 270.5,
+    "numSatellites": 11,
+    "fixStatus": 3,
+    "horizontalAccuracy": 0.924,
+    "verticalAccuracy": 1.836,
+    "speedAccuracy": 0.704,
+    "headingAccuracy": 145.26856,
+    "pdop": 3.0,
+    "isFixValid": true
+  },
+  "motion": {
+    "gForceX": -0.003,
+    "gForceY": 0.113,
+    "gForceZ": 0.974,
+    "rotationX": 2.09,
+    "rotationY": 0.86,
+    "rotationZ": 0.04
+  },
+  "battery": 89.0,
+  "isCharging": false,
+  "timeAccuracy": 25,
+  "validityFlags": 7
+}
+```
+
+**Response:** 201 Created
+
+```json
+{
+  "message": "Telemetry data received successfully",
+  "timestamp": "2022-01-10T08:51:08.239Z"
+}
+```
+
+**Example with curl:**
+
+```bash
+curl -X POST http://localhost:8080/api/telemetry \
+  -H "Content-Type: application/json" \
+  -d '{
+    "iTOW": 118286240,
+    "timestamp": "2022-01-10T08:51:08.239Z",
+    "gps": {
+      "latitude": 42.6719035,
+      "longitude": 23.2887238,
+      "wgsAltitude": 625.761,
+      "mslAltitude": 590.095,
+      "speed": 125.5,
+      "heading": 270.5,
+      "numSatellites": 11,
+      "fixStatus": 3,
+      "horizontalAccuracy": 0.924,
+      "verticalAccuracy": 1.836,
+      "speedAccuracy": 0.704,
+      "headingAccuracy": 145.26856,
+      "pdop": 3.0,
+      "isFixValid": true
+    },
+    "motion": {
+      "gForceX": -0.003,
+      "gForceY": 0.113,
+      "gForceZ": 0.974,
+      "rotationX": 2.09,
+      "rotationY": 0.86,
+      "rotationZ": 0.04
+    },
+    "battery": 89.0,
+    "isCharging": false,
+    "timeAccuracy": 25,
+    "validityFlags": 7
+  }'
+```
+
+The telemetry data will be logged to the console in a structured format for monitoring and debugging.
+
 ## License
 
 See LICENSE file for details.

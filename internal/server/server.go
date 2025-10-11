@@ -15,6 +15,7 @@ func New() *gin.Engine {
 	router.GET("/", handlers.HelloHandler)
 	router.GET("/health", handlers.HealthHandler)
 	router.GET("/api/greeting/:name", handlers.GreetingHandler)
+	router.POST("/api/telemetry", handlers.TelemetryHandler)
 
 	return router
 }
