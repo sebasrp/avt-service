@@ -276,6 +276,139 @@ curl -X POST http://localhost:8080/api/telemetry \
 
 The telemetry data is stored in TimescaleDB and also logged to the console in a structured format for monitoring and debugging.
 
+**Note:** For batch uploads, only the first and last records are logged to avoid excessive console output.
+
+### Batch Telemetry Ingestion
+
+**Endpoint:** `POST /api/telemetry/batch`
+
+Receives multiple telemetry data points in a single request for efficient batch processing.
+
+**Request Body:** JSON Array
+
+```json
+[
+  {
+    "iTOW": 118286240,
+    "timestamp": "2022-01-10T08:51:08.239Z",
+    "gps": { ... },
+    "motion": { ... },
+    "battery": 89.0,
+    "isCharging": false,
+    "timeAccuracy": 25,
+    "validityFlags": 7
+  },
+  {
+    "iTOW": 118286340,
+    "timestamp": "2022-01-10T08:51:08.339Z",
+    "gps": { ... },
+    "motion": { ... },
+    "battery": 89.0,
+    "isCharging": false,
+    "timeAccuracy": 25,
+    "validityFlags": 7
+  }
+]
+```
+
+**Response:** 201 Created
+
+```json
+{
+  "message": "Batch telemetry data received successfully (2 records)",
+  "count": 2,
+  "ids": [12345, 12346]
+}
+```
+
+**Constraints:**
+
+- Maximum batch size: 1000 records
+- All records must have valid timestamps
+- Returns array of IDs for successfully saved records
+
+**Example with curl:**
+
+```bash
+curl -X POST http://localhost:8080/api/telemetry/batch \
+  -H "Content-Type: application/json" \
+  -d '[
+    {
+      "iTOW": 118286240,
+      "timestamp": "2022-01-10T08:51:08.239Z",
+      "gps": {
+        "latitude": 42.6719035,
+        "longitude": 23.2887238,
+        "wgsAltitude": 625.761,
+        "mslAltitude": 590.095,
+        "speed": 125.5,
+        "heading": 270.5,
+        "numSatellites": 11,
+        "fixStatus": 3,
+        "horizontalAccuracy": 0.924,
+        "verticalAccuracy": 1.836,
+        "speedAccuracy": 0.704,
+        "headingAccuracy": 145.26856,
+        "pdop": 3.0,
+        "isFixValid": true
+      },
+      "motion": {
+        "gForceX": -0.003,
+        "gForceY": 0.113,
+        "gForceZ": 0.974,
+        "rotationX": 2.09,
+        "rotationY": 0.86,
+        "rotationZ": 0.04
+      },
+      "battery": 89.0,
+      "isCharging": false,
+      "timeAccuracy": 25,
+      "validityFlags": 7
+    }
+  ]'
+```
+
+## Testing
+
+The service includes comprehensive unit and integration tests.
+
+### Run All Tests
+
+```bash
+make test
+# or
+go test ./...
+```
+
+### Run Tests with Coverage
+
+```bash
+make test-coverage
+# or
+go test ./... -cover
+```
+
+### Run Specific Tests
+
+```bash
+# Batch endpoint tests only
+go test ./internal/handlers -v -run Batch
+
+# Server integration tests
+go test ./internal/server -v
+
+# Skip integration tests (for CI)
+go test ./... -short
+```
+
+### Test Coverage
+
+- **Handlers**: 95.3% coverage
+- **Server**: 100% coverage
+- **Repository**: 64.6% coverage
+
+For detailed testing documentation, see [docs/testing.md](docs/testing.md).
+
 ## Deployment
 
 ### Docker Deployment

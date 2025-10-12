@@ -62,6 +62,79 @@ func (h *TelemetryHandler) HandlePost(c *gin.Context) {
 	})
 }
 
+// HandleBatchPost handles incoming batch telemetry data from RaceBox devices
+func (h *TelemetryHandler) HandleBatchPost(c *gin.Context) {
+	var telemetryBatch []models.TelemetryData
+
+	// Parse JSON body
+	if err := c.ShouldBindJSON(&telemetryBatch); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "Invalid JSON payload",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	// Validate batch size
+	if len(telemetryBatch) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Empty batch",
+		})
+		return
+	}
+
+	if len(telemetryBatch) > 1000 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Batch too large (max 1000 records)",
+		})
+		return
+	}
+
+	// Validate each telemetry record
+	for i, telemetry := range telemetryBatch {
+		if telemetry.Timestamp.IsZero() {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": fmt.Sprintf("Missing timestamp in record %d", i),
+			})
+			return
+		}
+	}
+
+	// Convert to pointers for SaveBatch
+	telemetryPointers := make([]*models.TelemetryData, len(telemetryBatch))
+	for i := range telemetryBatch {
+		telemetryPointers[i] = &telemetryBatch[i]
+	}
+
+	// Save batch to database
+	if err := h.repo.SaveBatch(c.Request.Context(), telemetryPointers); err != nil {
+		log.Printf("Error saving telemetry batch to database: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to save telemetry batch",
+		})
+		return
+	}
+
+	// Collect IDs of saved records
+	savedIDs := make([]int64, len(telemetryBatch))
+	for i, telemetry := range telemetryBatch {
+		savedIDs[i] = telemetry.ID
+		// Log first and last records only to avoid spam
+		if i == 0 || i == len(telemetryBatch)-1 {
+			logTelemetry(telemetry)
+		}
+	}
+
+	log.Printf("Batch telemetry: Saved %d records", len(telemetryBatch))
+
+	// Return success response with IDs
+	c.JSON(http.StatusCreated, gin.H{
+		"message": fmt.Sprintf("Batch telemetry data received successfully (%d records)", len(telemetryBatch)),
+		"count":   len(telemetryBatch),
+		"ids":     savedIDs,
+	})
+}
+
 // logTelemetry logs telemetry data in a structured format
 func logTelemetry(data models.TelemetryData) {
 	log.Printf("=== Telemetry Data Received ===")

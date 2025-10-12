@@ -17,6 +17,7 @@ func New(repo repository.TelemetryRepository) *gin.Engine {
 
 	// Register routes
 	router.POST("/api/telemetry", telemetryHandler.HandlePost)
+	router.POST("/api/telemetry/batch", telemetryHandler.HandleBatchPost)
 
 	return router
 }
