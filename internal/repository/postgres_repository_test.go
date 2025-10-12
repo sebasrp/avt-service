@@ -247,7 +247,7 @@ func TestPostgresRepository_GetByTimeRange(t *testing.T) {
 		}
 	}
 
-	// Query time range
+	// Query time range (BETWEEN is inclusive on both ends)
 	start := baseTime.Add(-1 * time.Minute)
 	end := baseTime.Add(3 * time.Minute)
 	results, err := repo.GetByTimeRange(ctx, start, end, 100)
@@ -255,8 +255,8 @@ func TestPostgresRepository_GetByTimeRange(t *testing.T) {
 		t.Fatalf("Failed to query by time range: %v", err)
 	}
 
-	// Should get records at 0, 1, 2 minutes (3 records)
-	expectedCount := 3
+	// Should get records at 0, 1, 2, 3 minutes (4 records, since BETWEEN is inclusive)
+	expectedCount := 4
 	if len(results) != expectedCount {
 		t.Errorf("Expected %d records, got %d", expectedCount, len(results))
 	}
