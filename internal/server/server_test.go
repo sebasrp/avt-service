@@ -373,7 +373,9 @@ func TestBatchTelemetryEndpointLargePayload(t *testing.T) {
 	}
 
 	var response map[string]interface{}
-	json.Unmarshal(w.Body.Bytes(), &response)
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("Failed to unmarshal response: %v", err)
+	}
 	expectedError := "Batch too large (max 1000 records)"
 	if errMsg, ok := response["error"].(string); !ok || errMsg != expectedError {
 		t.Errorf("Expected error '%s', got %v", expectedError, response["error"])
