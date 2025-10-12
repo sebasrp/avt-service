@@ -21,9 +21,9 @@ func setupTestDB(t *testing.T) (*database.DB, func()) {
 
 	ctx := context.Background()
 
-	// Create TimescaleDB container
+	// Create TimescaleDB container with PostGIS support
 	pgContainer, err := postgres.Run(ctx,
-		"timescale/timescaledb:latest-pg16",
+		"timescale/timescaledb-ha:pg16",
 		postgres.WithDatabase("test_telemetry"),
 		postgres.WithUsername("test_user"),
 		postgres.WithPassword("test_pass"),
