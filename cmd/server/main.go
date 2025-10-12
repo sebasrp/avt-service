@@ -3,23 +3,42 @@ package main
 
 import (
 	"log"
-	"os"
 
+	"github.com/sebasr/avt-service/internal/config"
+	"github.com/sebasr/avt-service/internal/database"
+	"github.com/sebasr/avt-service/internal/repository"
 	"github.com/sebasr/avt-service/internal/server"
 )
 
 func main() {
-	// Get port from environment variable, default to 8080
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
+	// Load configuration
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("Failed to load configuration: %v", err)
 	}
 
-	// Create and start the server
-	srv := server.New()
+	// Initialize database connection
+	db, err := database.New(&cfg.Database)
+	if err != nil {
+		log.Fatalf("Failed to connect to database: %v", err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			log.Printf("Error closing database: %v", err)
+		}
+	}()
 
-	log.Printf("Starting server on port %s", port)
-	if err := srv.Run(":" + port); err != nil {
-		log.Fatalf("Failed to start server: %v", err)
+	log.Println("Successfully connected to database")
+
+	// Create repository
+	repo := repository.NewPostgresRepository(db)
+
+	// Create and start the server
+	srv := server.New(repo)
+
+	log.Printf("Starting server on port %s", cfg.Server.Port)
+	if err := srv.Run(":" + cfg.Server.Port); err != nil {
+		log.Printf("Failed to start server: %v", err)
+		panic(err) // Use panic instead of log.Fatalf to ensure defer runs
 	}
 }

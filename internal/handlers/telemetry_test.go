@@ -2,7 +2,9 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/sebasr/avt-service/internal/models"
+	"github.com/sebasr/avt-service/internal/repository"
 )
 
 func TestTelemetryHandler(t *testing.T) {
@@ -111,9 +114,13 @@ func TestTelemetryHandler(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Create mock repository
+			mockRepo := repository.NewMockRepository()
+			handler := NewTelemetryHandler(mockRepo)
+
 			// Create test router
 			router := gin.New()
-			router.POST("/api/telemetry", TelemetryHandler)
+			router.POST("/api/telemetry", handler.HandlePost)
 
 			// Marshal payload to JSON
 			var body []byte
@@ -159,8 +166,12 @@ func TestTelemetryHandler(t *testing.T) {
 }
 
 func TestTelemetryHandlerContentType(t *testing.T) {
+	// Create mock repository
+	mockRepo := repository.NewMockRepository()
+	handler := NewTelemetryHandler(mockRepo)
+
 	router := gin.New()
-	router.POST("/api/telemetry", TelemetryHandler)
+	router.POST("/api/telemetry", handler.HandlePost)
 
 	telemetry := models.TelemetryData{
 		Timestamp: time.Now().UTC(),
@@ -179,5 +190,49 @@ func TestTelemetryHandlerContentType(t *testing.T) {
 	contentType := w.Header().Get("Content-Type")
 	if contentType != "application/json; charset=utf-8" {
 		t.Errorf("Expected Content-Type 'application/json; charset=utf-8', got %q", contentType)
+	}
+}
+
+func TestTelemetryHandlerDatabaseError(t *testing.T) {
+	// Create mock repository that returns an error
+	mockRepo := repository.NewMockRepository()
+	mockRepo.SaveFunc = func(_ context.Context, _ *models.TelemetryData) error {
+		return errors.New("database connection failed")
+	}
+
+	handler := NewTelemetryHandler(mockRepo)
+
+	router := gin.New()
+	router.POST("/api/telemetry", handler.HandlePost)
+
+	telemetry := models.TelemetryData{
+		Timestamp: time.Now().UTC(),
+		GPS: models.GpsData{
+			Latitude:  42.6719035,
+			Longitude: 23.2887238,
+		},
+		Motion: models.MotionData{},
+	}
+
+	body, _ := json.Marshal(telemetry)
+	req, _ := http.NewRequest("POST", "/api/telemetry", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	// Check status code
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("Expected status %d, got %d", http.StatusInternalServerError, w.Code)
+	}
+
+	// Check response body
+	var response map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("Failed to unmarshal response: %v", err)
+	}
+
+	if err, ok := response["error"].(string); !ok || err != "Failed to save telemetry data" {
+		t.Errorf("Expected database error message, got %v", response["error"])
 	}
 }

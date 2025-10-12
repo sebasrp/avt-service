@@ -1,14 +1,52 @@
-# avt-service
+# AVT Service
 
-A simple backend Service for Automatic Vehicle Telemetry
+A high-performance backend service for Automatic Vehicle Telemetry ingestion and storage using Go, Gin, and TimescaleDB.
+
+## Quick Start
+
+### 1. Set up the development environment
+
+This will install linters, download dependencies, start the database, and run migrations:
+
+```bash
+make dev-setup
+```
+
+Or manually:
+
+```bash
+# Install linters
+make install-linter
+
+# Download dependencies
+go mod download
+
+# Start database
+docker-compose up -d
+
+# Wait for database to be ready (5-10 seconds)
+
+# Run migrations
+make migrate
+```
+
+### 2. Run the service
+
+```bash
+make run
+# or
+go run cmd/server/main.go
+```
+
+The service will be available at `http://localhost:8080`.
 
 ## Installation
 
-1. Clone the repository
-2. Install dependencies:
+Clone the repository:
 
 ```bash
-go mod download
+git clone https://github.com/sebasr/avt-service.git
+cd avt-service
 ```
 
 ## Development
@@ -40,29 +78,102 @@ Run the binary:
 ./bin/server
 ```
 
-### Quick Commands
+### Available Commands
+
+#### Development
 
 ```bash
-make run          # Run the server directly
-make check        # Run all checks (fmt, lint, test)
-make clean        # Remove build artifacts
-make deps         # Download dependencies
+make dev-setup       # Set up local development environment
+make run             # Run the server directly
+make build           # Build the application (with fmt, lint, test)
+make clean           # Remove build artifacts
+```
+
+#### Database
+
+```bash
+make docker-up       # Start Docker containers (TimescaleDB)
+make docker-down     # Stop Docker containers
+make migrate         # Run database migrations
+make migrate-down    # Rollback last migration
+make migrate-create NAME=my_migration # Create new migration
+make db-shell        # Open psql shell to database
+```
+
+#### Dependencies
+
+```bash
+make deps            # Download and tidy dependencies
+make install-linter  # Install golangci-lint
+```
+
+## Database Setup
+
+### Using Docker (Recommended for Development)
+
+Start the TimescaleDB container:
+
+```bash
+make docker-up
+```
+
+Run migrations:
+
+```bash
+make migrate
+```
+
+## Configuration
+
+The service is configured via environment variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | `8080` | HTTP server port |
+| `DATABASE_URL` | - | Full PostgreSQL connection string |
+| `DB_HOST` | `localhost` | Database host |
+| `DB_PORT` | `5432` | Database port |
+| `DB_NAME` | `telemetry_dev` | Database name |
+| `DB_USER` | `telemetry_user` | Database user |
+| `DB_PASSWORD` | `telemetry_pass` | Database password |
+| `DB_SSLMODE` | `disable` | PostgreSQL SSL mode |
+| `DB_MAX_CONNECTIONS` | `25` | Maximum database connections |
+| `DB_MAX_IDLE_CONNECTIONS` | `5` | Maximum idle connections |
+| `DB_CONNECTION_MAX_LIFETIME` | `5m` | Maximum connection lifetime |
+
+Example:
+
+```bash
+PORT=3000 DATABASE_URL="postgres://user:pass@localhost:5432/telemetry?sslmode=disable" go run cmd/server/main.go
 ```
 
 ## Running the Service
 
-Start the server:
+### Development
 
 ```bash
 make run
-# or
-go run cmd/server/main.go
 ```
 
-The service will listen on port 8080 by default. You can change the port using the `PORT` environment variable:
+### Production
+
+Build the binary:
 
 ```bash
-PORT=3000 make run
+make build
+```
+
+Run the binary:
+
+```bash
+./bin/server
+```
+
+Or use Docker:
+
+```bash
+docker build -t avt-service .
+docker run -p 8080:8080 --env-file .env avt-service
 ```
 
 ## API Endpoints
@@ -71,7 +182,7 @@ PORT=3000 make run
 
 **Endpoint:** `POST /api/telemetry`
 
-Receives telemetry data and logs it to the console.
+Receives telemetry data and stores it in TimescaleDB.
 
 **Request Body:** JSON
 
@@ -115,9 +226,14 @@ Receives telemetry data and logs it to the console.
 ```json
 {
   "message": "Telemetry data received successfully",
-  "timestamp": "2022-01-10T08:51:08.239Z"
+  "timestamp": "2022-01-10T08:51:08.239Z",
+  "id": 12345
 }
 ```
+
+**Optional Fields:**
+- `deviceId` (string): Device identifier
+- `sessionId` (UUID): Session identifier for grouping telemetry data
 
 **Example with curl:**
 
@@ -158,7 +274,23 @@ curl -X POST http://localhost:8080/api/telemetry \
   }'
 ```
 
-The telemetry data will be logged to the console in a structured format for monitoring and debugging.
+The telemetry data is stored in TimescaleDB and also logged to the console in a structured format for monitoring and debugging.
+
+## Deployment
+
+### Docker Deployment
+
+Build the Docker image:
+
+```bash
+docker build -t avt-service:latest .
+```
+
+Run with Docker Compose:
+
+```bash
+docker-compose up
+```
 
 ## License
 

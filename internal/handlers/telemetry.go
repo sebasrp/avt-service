@@ -9,10 +9,21 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/sebasr/avt-service/internal/models"
+	"github.com/sebasr/avt-service/internal/repository"
 )
 
-// TelemetryHandler handles incoming telemetry data from RaceBox devices
-func TelemetryHandler(c *gin.Context) {
+// TelemetryHandler handles telemetry-related HTTP requests
+type TelemetryHandler struct {
+	repo repository.TelemetryRepository
+}
+
+// NewTelemetryHandler creates a new telemetry handler with the given repository
+func NewTelemetryHandler(repo repository.TelemetryRepository) *TelemetryHandler {
+	return &TelemetryHandler{repo: repo}
+}
+
+// HandlePost handles incoming telemetry data from RaceBox devices
+func (h *TelemetryHandler) HandlePost(c *gin.Context) {
 	var telemetry models.TelemetryData
 
 	// Parse JSON body
@@ -31,6 +42,15 @@ func TelemetryHandler(c *gin.Context) {
 		return
 	}
 
+	// Save to database
+	if err := h.repo.Save(c.Request.Context(), &telemetry); err != nil {
+		log.Printf("Error saving telemetry to database: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to save telemetry data",
+		})
+		return
+	}
+
 	// Log the telemetry data to console
 	logTelemetry(telemetry)
 
@@ -38,6 +58,7 @@ func TelemetryHandler(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{
 		"message":   "Telemetry data received successfully",
 		"timestamp": telemetry.Timestamp,
+		"id":        telemetry.ID,
 	})
 }
 

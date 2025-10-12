@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/sebasr/avt-service/internal/models"
+	"github.com/sebasr/avt-service/internal/repository"
 )
 
 func init() {
@@ -19,7 +20,9 @@ func init() {
 }
 
 func TestTelemetryEndpoint(t *testing.T) {
-	router := New()
+	// Create a mock repository
+	mockRepo := repository.NewMockRepository()
+	router := New(mockRepo)
 
 	// Create sample telemetry data
 	telemetry := models.TelemetryData{
@@ -89,7 +92,9 @@ func TestTelemetryEndpoint(t *testing.T) {
 }
 
 func TestNonExistentRoute(t *testing.T) {
-	router := New()
+	// Create a mock repository
+	mockRepo := repository.NewMockRepository()
+	router := New(mockRepo)
 
 	req, _ := http.NewRequest("GET", "/nonexistent", nil)
 	w := httptest.NewRecorder()
