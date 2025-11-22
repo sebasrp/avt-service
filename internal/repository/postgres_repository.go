@@ -99,6 +99,7 @@ func (r *PostgresRepository) SaveBatch(ctx context.Context, dataPoints []*models
 			$24, $25, $26,
 			$27, $28
 		)
+		RETURNING id
 	`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
@@ -106,7 +107,7 @@ func (r *PostgresRepository) SaveBatch(ctx context.Context, dataPoints []*models
 	defer stmt.Close()
 
 	for _, data := range dataPoints {
-		_, err := stmt.ExecContext(ctx,
+		err := stmt.QueryRowContext(ctx,
 			data.Timestamp, data.DeviceID, data.SessionID,
 			data.ITOW, data.TimeAccuracy, data.ValidityFlags,
 			data.GPS.Latitude, data.GPS.Longitude,
@@ -117,7 +118,7 @@ func (r *PostgresRepository) SaveBatch(ctx context.Context, dataPoints []*models
 			data.Motion.GForceX, data.Motion.GForceY, data.Motion.GForceZ,
 			data.Motion.RotationX, data.Motion.RotationY, data.Motion.RotationZ,
 			data.Battery, data.IsCharging,
-		)
+		).Scan(&data.ID)
 		if err != nil {
 			return fmt.Errorf("failed to insert telemetry in batch: %w", err)
 		}
