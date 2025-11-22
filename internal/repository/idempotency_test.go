@@ -62,7 +62,7 @@ func TestPostgresRepository_MarkBatchProcessed(t *testing.T) {
 	t.Run("successfully marks batch as processed", func(t *testing.T) {
 		batchID := "test-batch-1"
 		deviceID := "device-456"
-		sessionID := "session-789"
+		sessionID := "550e8400-e29b-41d4-a716-446655440001" // Valid UUID format
 
 		err := repo.MarkBatchProcessed(ctx, batchID, 25, deviceID, &sessionID)
 		assert.NoError(t, err)
