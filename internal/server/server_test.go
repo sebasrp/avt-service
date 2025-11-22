@@ -265,7 +265,7 @@ func TestBatchTelemetryEndpointValidation(t *testing.T) {
 				},
 			},
 			expectedStatus: http.StatusBadRequest,
-			expectedError:  "Missing timestamp in record 0",
+			expectedError:  "Validation failed for record 0",
 		},
 		{
 			name:           "invalid JSON",

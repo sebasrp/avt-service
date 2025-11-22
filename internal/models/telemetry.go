@@ -1,7 +1,10 @@
 // Package models contains data models for the AVT service.
 package models
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // TelemetryData represents complete telemetry data from a RaceBox device
 type TelemetryData struct {
@@ -101,4 +104,129 @@ type MotionData struct {
 
 	// Rotation rate on Z axis (yaw) in degrees per second
 	RotationZ float64 `json:"rotationZ" db:"rotation_z"`
+}
+
+// Validate validates the telemetry data for correctness
+func (t *TelemetryData) Validate() error {
+	// Validate timestamp
+	if t.Timestamp.IsZero() {
+		return fmt.Errorf("timestamp is required")
+	}
+
+	// Validate GPS data
+	if err := t.GPS.Validate(); err != nil {
+		return fmt.Errorf("GPS validation failed: %w", err)
+	}
+
+	// Validate Motion data
+	if err := t.Motion.Validate(); err != nil {
+		return fmt.Errorf("motion validation failed: %w", err)
+	}
+
+	// Validate battery level (0-100% for percentage, or 0-30V for voltage)
+	if t.Battery < 0 || t.Battery > 100 {
+		// Allow higher values for voltage readings (up to 30V)
+		if t.Battery > 30 {
+			return fmt.Errorf("invalid battery value: %.2f (must be 0-100%% or 0-30V)", t.Battery)
+		}
+	}
+
+	return nil
+}
+
+// Validate validates GPS data for correctness
+func (g *GpsData) Validate() error {
+	// Validate latitude range
+	if g.Latitude < -90 || g.Latitude > 90 {
+		return fmt.Errorf("invalid latitude: %.7f (must be between -90 and 90)", g.Latitude)
+	}
+
+	// Validate longitude range
+	if g.Longitude < -180 || g.Longitude > 180 {
+		return fmt.Errorf("invalid longitude: %.7f (must be between -180 and 180)", g.Longitude)
+	}
+
+	// Validate speed (reasonable maximum: 500 km/h for racing)
+	if g.Speed < 0 || g.Speed > 500 {
+		return fmt.Errorf("invalid speed: %.2f km/h (must be between 0 and 500)", g.Speed)
+	}
+
+	// Validate heading range
+	if g.Heading < 0 || g.Heading > 360 {
+		return fmt.Errorf("invalid heading: %.2f degrees (must be between 0 and 360)", g.Heading)
+	}
+
+	// Validate altitude (reasonable range: -500m to 9000m)
+	if g.WgsAltitude < -500 || g.WgsAltitude > 9000 {
+		return fmt.Errorf("invalid WGS altitude: %.2f m (must be between -500 and 9000)", g.WgsAltitude)
+	}
+
+	if g.MslAltitude < -500 || g.MslAltitude > 9000 {
+		return fmt.Errorf("invalid MSL altitude: %.2f m (must be between -500 and 9000)", g.MslAltitude)
+	}
+
+	// Validate number of satellites
+	if g.NumSatellites < 0 || g.NumSatellites > 50 {
+		return fmt.Errorf("invalid number of satellites: %d (must be between 0 and 50)", g.NumSatellites)
+	}
+
+	// Validate fix status
+	if g.FixStatus < 0 || g.FixStatus > 3 {
+		return fmt.Errorf("invalid fix status: %d (must be 0, 2, or 3)", g.FixStatus)
+	}
+
+	// Validate accuracy values (must be non-negative)
+	if g.HorizontalAccuracy < 0 {
+		return fmt.Errorf("invalid horizontal accuracy: %.2f (must be non-negative)", g.HorizontalAccuracy)
+	}
+
+	if g.VerticalAccuracy < 0 {
+		return fmt.Errorf("invalid vertical accuracy: %.2f (must be non-negative)", g.VerticalAccuracy)
+	}
+
+	if g.SpeedAccuracy < 0 {
+		return fmt.Errorf("invalid speed accuracy: %.2f (must be non-negative)", g.SpeedAccuracy)
+	}
+
+	if g.HeadingAccuracy < 0 || g.HeadingAccuracy > 360 {
+		return fmt.Errorf("invalid heading accuracy: %.2f (must be between 0 and 360)", g.HeadingAccuracy)
+	}
+
+	// Validate PDOP (reasonable range: 0-50)
+	if g.PDOP < 0 || g.PDOP > 50 {
+		return fmt.Errorf("invalid PDOP: %.2f (must be between 0 and 50)", g.PDOP)
+	}
+
+	return nil
+}
+
+// Validate validates motion sensor data for correctness
+func (m *MotionData) Validate() error {
+	// Validate G-forces (reasonable range: -10g to +10g for racing)
+	if m.GForceX < -10 || m.GForceX > 10 {
+		return fmt.Errorf("invalid G-force X: %.3f (must be between -10 and 10)", m.GForceX)
+	}
+
+	if m.GForceY < -10 || m.GForceY > 10 {
+		return fmt.Errorf("invalid G-force Y: %.3f (must be between -10 and 10)", m.GForceY)
+	}
+
+	if m.GForceZ < -10 || m.GForceZ > 10 {
+		return fmt.Errorf("invalid G-force Z: %.3f (must be between -10 and 10)", m.GForceZ)
+	}
+
+	// Validate rotation rates (reasonable range: -360 to +360 degrees/second)
+	if m.RotationX < -360 || m.RotationX > 360 {
+		return fmt.Errorf("invalid rotation X: %.2f deg/s (must be between -360 and 360)", m.RotationX)
+	}
+
+	if m.RotationY < -360 || m.RotationY > 360 {
+		return fmt.Errorf("invalid rotation Y: %.2f deg/s (must be between -360 and 360)", m.RotationY)
+	}
+
+	if m.RotationZ < -360 || m.RotationZ > 360 {
+		return fmt.Errorf("invalid rotation Z: %.2f deg/s (must be between -360 and 360)", m.RotationZ)
+	}
+
+	return nil
 }

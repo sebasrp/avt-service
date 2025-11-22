@@ -91,8 +91,14 @@ func TestTelemetryHandler(t *testing.T) {
 			},
 			expectedStatus: http.StatusBadRequest,
 			checkResponse: func(t *testing.T, resp map[string]interface{}) {
-				if err, ok := resp["error"].(string); !ok || err != "Missing required field: timestamp" {
-					t.Errorf("Expected missing timestamp error, got %v", resp["error"])
+				if err, ok := resp["error"].(string); !ok || err != "Validation failed" {
+					t.Errorf("Expected validation failed error, got %v", resp["error"])
+				}
+				// Check that details mention timestamp
+				if details, ok := resp["details"].(string); ok {
+					if details != "timestamp is required" {
+						t.Errorf("Expected timestamp validation details, got %v", details)
+					}
 				}
 			},
 		},
@@ -388,8 +394,14 @@ func TestTelemetryHandler_BatchPost(t *testing.T) {
 			},
 			expectedStatus: http.StatusBadRequest,
 			checkResponse: func(t *testing.T, resp map[string]interface{}) {
-				if err, ok := resp["error"].(string); !ok || err != "Missing timestamp in record 1" {
-					t.Errorf("Expected missing timestamp error, got %v", resp["error"])
+				if err, ok := resp["error"].(string); !ok || err != "Validation failed for record 1" {
+					t.Errorf("Expected validation failed error, got %v", resp["error"])
+				}
+				// Check that details mention timestamp
+				if details, ok := resp["details"].(string); ok {
+					if details != "timestamp is required" {
+						t.Errorf("Expected timestamp validation details, got %v", details)
+					}
 				}
 			},
 		},

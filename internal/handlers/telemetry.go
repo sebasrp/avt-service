@@ -34,10 +34,11 @@ func (h *TelemetryHandler) HandlePost(c *gin.Context) {
 		return
 	}
 
-	// Validate required fields
-	if telemetry.Timestamp.IsZero() {
+	// Validate telemetry data
+	if err := telemetry.Validate(); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "Missing required field: timestamp",
+			"error":   "Validation failed",
+			"details": err.Error(),
 		})
 		return
 	}
@@ -92,9 +93,10 @@ func (h *TelemetryHandler) HandleBatchPost(c *gin.Context) {
 
 	// Validate each telemetry record
 	for i, telemetry := range telemetryBatch {
-		if telemetry.Timestamp.IsZero() {
+		if err := telemetry.Validate(); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
-				"error": fmt.Sprintf("Missing timestamp in record %d", i),
+				"error":   fmt.Sprintf("Validation failed for record %d", i),
+				"details": err.Error(),
 			})
 			return
 		}
