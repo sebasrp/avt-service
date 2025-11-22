@@ -3,19 +3,48 @@ package server
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 
 	"github.com/sebasr/avt-service/internal/handlers"
 	"github.com/sebasr/avt-service/internal/repository"
 )
 
+// RequestIDMiddleware adds a unique request ID to each request
+func RequestIDMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Check if request ID already exists in header
+		requestID := c.GetHeader("X-Request-ID")
+		if requestID == "" {
+			// Generate new UUID for request ID
+			requestID = uuid.New().String()
+		}
+
+		// Set request ID in context and response header
+		c.Set("RequestID", requestID)
+		c.Header("X-Request-ID", requestID)
+
+		c.Next()
+	}
+}
+
 // New creates a new Gin router with all routes configured
 func New(repo repository.TelemetryRepository) *gin.Engine {
 	router := gin.Default()
 
+	// Add request ID middleware
+	router.Use(RequestIDMiddleware())
+
 	// Initialize handlers
 	telemetryHandler := handlers.NewTelemetryHandler(repo)
 
-	// Register routes
+	// API v1 routes
+	v1 := router.Group("/api/v1")
+	{
+		v1.POST("/telemetry", telemetryHandler.HandlePost)
+		v1.POST("/telemetry/batch", telemetryHandler.HandleBatchPost)
+	}
+
+	// Legacy routes (for backward compatibility) - redirect to v1
 	router.POST("/api/telemetry", telemetryHandler.HandlePost)
 	router.POST("/api/telemetry/batch", telemetryHandler.HandleBatchPost)
 

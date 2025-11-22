@@ -178,9 +178,40 @@ docker run -p 8080:8080 --env-file .env avt-service
 
 ## API Endpoints
 
+### API Versioning
+
+The API supports versioning to ensure backward compatibility:
+
+- **Current Version:** `v1`
+- **Versioned Endpoints:** `/api/v1/*`
+
+### Request ID Tracking
+
+Every request automatically receives a unique request ID for tracing and debugging:
+
+- **Header:** `X-Request-ID`
+- **Auto-generated:** UUID v4 format
+- **Client-provided:** You can provide your own request ID in the `X-Request-ID` header
+- **Response:** The request ID is returned in the response header
+
+Example:
+
+```bash
+curl -X POST http://localhost:8080/api/v1/telemetry \
+  -H "X-Request-ID: my-custom-id-123" \
+  -H "Content-Type: application/json" \
+  -d '{ ... }'
+```
+
+Response will include:
+
+```
+X-Request-ID: my-custom-id-123
+```
+
 ### Telemetry Ingestion
 
-**Endpoint:** `POST /api/telemetry`
+**Endpoint:** `POST /api/v1/telemetry`
 
 Receives telemetry data and stores it in TimescaleDB.
 
@@ -232,13 +263,14 @@ Receives telemetry data and stores it in TimescaleDB.
 ```
 
 **Optional Fields:**
+
 - `deviceId` (string): Device identifier
 - `sessionId` (UUID): Session identifier for grouping telemetry data
 
-**Example with curl:**
+**Example with curl (v1 API):**
 
 ```bash
-curl -X POST http://localhost:8080/api/telemetry \
+curl -X POST http://localhost:8080/api/v1/telemetry \
   -H "Content-Type: application/json" \
   -d '{
     "iTOW": 118286240,
@@ -280,7 +312,7 @@ The telemetry data is stored in TimescaleDB and also logged to the console in a 
 
 ### Batch Telemetry Ingestion
 
-**Endpoint:** `POST /api/telemetry/batch`
+**Endpoint:** `POST /api/v1/telemetry/batch`
 
 Receives multiple telemetry data points in a single request for efficient batch processing.
 
@@ -327,10 +359,10 @@ Receives multiple telemetry data points in a single request for efficient batch 
 - All records must have valid timestamps
 - Returns array of IDs for successfully saved records
 
-**Example with curl:**
+**Example with curl (v1 API):**
 
 ```bash
-curl -X POST http://localhost:8080/api/telemetry/batch \
+curl -X POST http://localhost:8080/api/v1/telemetry/batch \
   -H "Content-Type: application/json" \
   -d '[
     {
