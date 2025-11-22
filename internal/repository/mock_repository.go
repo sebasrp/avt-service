@@ -9,12 +9,14 @@ import (
 
 // MockRepository is a mock implementation of TelemetryRepository for testing
 type MockRepository struct {
-	SaveFunc           func(ctx context.Context, data *models.TelemetryData) error
-	SaveBatchFunc      func(ctx context.Context, data []*models.TelemetryData) error
-	GetByTimeRangeFunc func(ctx context.Context, start, end time.Time, limit int) ([]*models.TelemetryData, error)
-	GetBySessionFunc   func(ctx context.Context, sessionID string, limit int) ([]*models.TelemetryData, error)
-	GetRecentFunc      func(ctx context.Context, limit int) ([]*models.TelemetryData, error)
-	GetByDeviceFunc    func(ctx context.Context, deviceID string, limit int) ([]*models.TelemetryData, error)
+	SaveFunc               func(ctx context.Context, data *models.TelemetryData) error
+	SaveBatchFunc          func(ctx context.Context, data []*models.TelemetryData) error
+	GetByTimeRangeFunc     func(ctx context.Context, start, end time.Time, limit int) ([]*models.TelemetryData, error)
+	GetBySessionFunc       func(ctx context.Context, sessionID string, limit int) ([]*models.TelemetryData, error)
+	GetRecentFunc          func(ctx context.Context, limit int) ([]*models.TelemetryData, error)
+	GetByDeviceFunc        func(ctx context.Context, deviceID string, limit int) ([]*models.TelemetryData, error)
+	IsBatchProcessedFunc   func(ctx context.Context, batchID string) (bool, error)
+	MarkBatchProcessedFunc func(ctx context.Context, batchID string, recordCount int, deviceID string, sessionID *string) error
 }
 
 // NewMockRepository creates a new mock repository with default implementations
@@ -37,6 +39,12 @@ func NewMockRepository() *MockRepository {
 		},
 		GetByDeviceFunc: func(_ context.Context, _ string, _ int) ([]*models.TelemetryData, error) {
 			return []*models.TelemetryData{}, nil
+		},
+		IsBatchProcessedFunc: func(_ context.Context, _ string) (bool, error) {
+			return false, nil
+		},
+		MarkBatchProcessedFunc: func(_ context.Context, _ string, _ int, _ string, _ *string) error {
+			return nil
 		},
 	}
 }
@@ -69,4 +77,14 @@ func (m *MockRepository) GetRecent(ctx context.Context, limit int) ([]*models.Te
 // GetByDevice implements TelemetryRepository.GetByDevice
 func (m *MockRepository) GetByDevice(ctx context.Context, deviceID string, limit int) ([]*models.TelemetryData, error) {
 	return m.GetByDeviceFunc(ctx, deviceID, limit)
+}
+
+// IsBatchProcessed implements TelemetryRepository.IsBatchProcessed
+func (m *MockRepository) IsBatchProcessed(ctx context.Context, batchID string) (bool, error) {
+	return m.IsBatchProcessedFunc(ctx, batchID)
+}
+
+// MarkBatchProcessed implements TelemetryRepository.MarkBatchProcessed
+func (m *MockRepository) MarkBatchProcessed(ctx context.Context, batchID string, recordCount int, deviceID string, sessionID *string) error {
+	return m.MarkBatchProcessedFunc(ctx, batchID, recordCount, deviceID, sessionID)
 }

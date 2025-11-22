@@ -40,6 +40,21 @@ type TelemetryData struct {
 	ValidityFlags int `json:"validityFlags" db:"validity_flags"`
 }
 
+// BatchUploadRequest represents a batch upload request with idempotency support
+type BatchUploadRequest struct {
+	// Unique batch identifier for idempotency (UUID v4)
+	BatchID string `json:"batchId" binding:"required"`
+
+	// Device identifier (optional)
+	DeviceID string `json:"deviceId,omitempty"`
+
+	// Session identifier (optional)
+	SessionID *string `json:"sessionId,omitempty"`
+
+	// Array of telemetry data points
+	Data []TelemetryData `json:"data" binding:"required,min=1,max=1000"`
+}
+
 // GpsData represents GPS data from the RaceBox device
 type GpsData struct {
 	// Latitude in degrees

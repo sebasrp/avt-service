@@ -114,6 +114,21 @@ func runTestMigrations(db *database.DB) error {
 		// Create indexes
 		`CREATE INDEX idx_telemetry_device_time ON telemetry (device_id, recorded_at DESC);`,
 		`CREATE INDEX idx_telemetry_session ON telemetry (session_id, recorded_at DESC) WHERE session_id IS NOT NULL;`,
+
+		// Create upload_batches table for idempotency
+		`CREATE TABLE upload_batches (
+			batch_id VARCHAR(36) PRIMARY KEY,
+			record_count INTEGER NOT NULL,
+			uploaded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			server_response TEXT,
+			device_id VARCHAR(50),
+			session_id UUID
+		);`,
+
+		// Create indexes for upload_batches
+		`CREATE INDEX idx_upload_batches_uploaded_at ON upload_batches (uploaded_at DESC);`,
+		`CREATE INDEX idx_upload_batches_device ON upload_batches (device_id, uploaded_at DESC) WHERE device_id IS NOT NULL;`,
+		`CREATE INDEX idx_upload_batches_session ON upload_batches (session_id, uploaded_at DESC) WHERE session_id IS NOT NULL;`,
 	}
 
 	ctx := context.Background()

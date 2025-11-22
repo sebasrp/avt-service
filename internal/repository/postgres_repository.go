@@ -287,3 +287,32 @@ func (r *PostgresRepository) scanTelemetryRows(rows *sql.Rows) ([]*models.Teleme
 
 	return results, nil
 }
+
+// IsBatchProcessed checks if a batch with the given ID has already been processed
+func (r *PostgresRepository) IsBatchProcessed(ctx context.Context, batchID string) (bool, error) {
+	query := `SELECT EXISTS(SELECT 1 FROM upload_batches WHERE batch_id = $1)`
+
+	var exists bool
+	err := r.db.QueryRowContext(ctx, query, batchID).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("failed to check batch status: %w", err)
+	}
+
+	return exists, nil
+}
+
+// MarkBatchProcessed marks a batch as processed for idempotency
+func (r *PostgresRepository) MarkBatchProcessed(ctx context.Context, batchID string, recordCount int, deviceID string, sessionID *string) error {
+	query := `
+		INSERT INTO upload_batches (batch_id, record_count, device_id, session_id)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (batch_id) DO NOTHING
+	`
+
+	_, err := r.db.ExecContext(ctx, query, batchID, recordCount, deviceID, sessionID)
+	if err != nil {
+		return fmt.Errorf("failed to mark batch as processed: %w", err)
+	}
+
+	return nil
+}

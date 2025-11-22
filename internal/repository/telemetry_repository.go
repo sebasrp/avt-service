@@ -27,4 +27,10 @@ type TelemetryRepository interface {
 
 	// GetByDevice retrieves telemetry data for a specific device
 	GetByDevice(ctx context.Context, deviceID string, limit int) ([]*models.TelemetryData, error)
+
+	// IsBatchProcessed checks if a batch with the given ID has already been processed
+	IsBatchProcessed(ctx context.Context, batchID string) (bool, error)
+
+	// MarkBatchProcessed marks a batch as processed for idempotency
+	MarkBatchProcessed(ctx context.Context, batchID string, recordCount int, deviceID string, sessionID *string) error
 }
