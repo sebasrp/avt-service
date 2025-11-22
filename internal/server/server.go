@@ -2,6 +2,9 @@
 package server
 
 import (
+	"net/http"
+	"time"
+
 	"github.com/gin-contrib/gzip"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -42,6 +45,15 @@ func New(repo repository.TelemetryRepository) *gin.Engine {
 	// API v1 routes
 	v1 := router.Group("/api/v1")
 	{
+		// Health check endpoint for network quality detection
+		v1.GET("/health", func(c *gin.Context) {
+			c.JSON(http.StatusOK, gin.H{
+				"status":    "healthy",
+				"timestamp": time.Now().UTC().Format(time.RFC3339),
+				"version":   "1.0.0",
+			})
+		})
+
 		v1.POST("/telemetry", telemetryHandler.HandlePost)
 		v1.POST("/telemetry/batch", telemetryHandler.HandleBatchPost)
 	}
