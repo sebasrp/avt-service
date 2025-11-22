@@ -2,6 +2,7 @@
 package server
 
 import (
+	"github.com/gin-contrib/gzip"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
@@ -31,8 +32,9 @@ func RequestIDMiddleware() gin.HandlerFunc {
 func New(repo repository.TelemetryRepository) *gin.Engine {
 	router := gin.Default()
 
-	// Add request ID middleware
+	// Add middlewares
 	router.Use(RequestIDMiddleware())
+	router.Use(gzip.Gzip(gzip.DefaultCompression, gzip.WithDecompressFn(gzip.DefaultDecompressHandle)))
 
 	// Initialize handlers
 	telemetryHandler := handlers.NewTelemetryHandler(repo)
