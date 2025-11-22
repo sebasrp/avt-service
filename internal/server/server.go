@@ -8,6 +8,9 @@ import (
 	"github.com/gin-contrib/gzip"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/ulule/limiter/v3"
+	mgin "github.com/ulule/limiter/v3/drivers/middleware/gin"
+	"github.com/ulule/limiter/v3/drivers/store/memory"
 
 	"github.com/sebasr/avt-service/internal/handlers"
 	"github.com/sebasr/avt-service/internal/repository"
@@ -31,12 +34,34 @@ func RequestIDMiddleware() gin.HandlerFunc {
 	}
 }
 
+// NewRateLimitMiddleware creates a rate limiting middleware using ulule/limiter.
+// It allows 100 requests per minute per IP address.
+func NewRateLimitMiddleware() gin.HandlerFunc {
+	// Define rate: 100 requests per 1 minute
+	rate := limiter.Rate{
+		Period: 1 * time.Minute,
+		Limit:  100,
+	}
+
+	// Create in-memory store
+	store := memory.NewStore()
+
+	// Create rate limiter instance
+	instance := limiter.New(store, rate)
+
+	// Create and return Gin middleware
+	middleware := mgin.NewMiddleware(instance)
+
+	return middleware
+}
+
 // New creates a new Gin router with all routes configured
 func New(repo repository.TelemetryRepository) *gin.Engine {
 	router := gin.Default()
 
 	// Add middlewares
 	router.Use(RequestIDMiddleware())
+	router.Use(NewRateLimitMiddleware())
 	router.Use(gzip.Gzip(gzip.DefaultCompression, gzip.WithDecompressFn(gzip.DefaultDecompressHandle)))
 
 	// Initialize handlers

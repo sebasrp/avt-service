@@ -106,12 +106,16 @@ func TestHealthEndpoint(t *testing.T) {
 	})
 
 	t.Run("handles concurrent requests", func(t *testing.T) {
-		const numRequests = 100
+		const numRequests = 10 // Reduced to stay within rate limit
 		results := make(chan int, numRequests)
+
+		// Use unique IP for this test to avoid rate limiting
+		testIP := "192.0.3.1:12345"
 
 		for i := 0; i < numRequests; i++ {
 			go func() {
 				req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
+				req.RemoteAddr = testIP
 				w := httptest.NewRecorder()
 				router.ServeHTTP(w, req)
 				results <- w.Code
@@ -127,6 +131,7 @@ func TestHealthEndpoint(t *testing.T) {
 
 	t.Run("does not accept POST method", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/health", nil)
+		req.RemoteAddr = "192.0.4.1:12345" // Unique IP to avoid rate limiting
 		w := httptest.NewRecorder()
 
 		router.ServeHTTP(w, req)
@@ -136,6 +141,7 @@ func TestHealthEndpoint(t *testing.T) {
 
 	t.Run("does not accept PUT method", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPut, "/api/v1/health", nil)
+		req.RemoteAddr = "192.0.5.1:12345" // Unique IP to avoid rate limiting
 		w := httptest.NewRecorder()
 
 		router.ServeHTTP(w, req)
@@ -145,6 +151,7 @@ func TestHealthEndpoint(t *testing.T) {
 
 	t.Run("does not accept DELETE method", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodDelete, "/api/v1/health", nil)
+		req.RemoteAddr = "192.0.6.1:12345" // Unique IP to avoid rate limiting
 		w := httptest.NewRecorder()
 
 		router.ServeHTTP(w, req)
