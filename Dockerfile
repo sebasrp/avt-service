@@ -26,12 +26,12 @@ WORKDIR /root/
 # Copy the binary from builder
 COPY --from=builder /app/server .
 COPY --from=builder /app/internal/database/migrations ./internal/database/migrations
-COPY --from=builder /app/scripts/run-migrations.sh ./scripts/run-migrations.sh
+COPY --from=builder /app/scripts/run-migrations.sh ./run-migrations.sh
 COPY --from=builder /app/scripts/docker-entrypoint.sh ./docker-entrypoint.sh
 COPY --from=builder /go/bin/migrate /usr/local/bin/migrate
 
 # Make scripts executable
-RUN chmod +x ./scripts/run-migrations.sh ./docker-entrypoint.sh
+RUN chmod +x ./run-migrations.sh ./docker-entrypoint.sh
 
 # Expose port
 EXPOSE 8080

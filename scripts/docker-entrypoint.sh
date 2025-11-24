@@ -17,8 +17,8 @@ echo "Running database migrations..."
 export DATABASE_URL="postgres://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}?sslmode=disable"
 export MIGRATIONS_DIR="internal/database/migrations"
 
-if [ -f "./scripts/run-migrations.sh" ]; then
-    ./scripts/run-migrations.sh
+if [ -f "./run-migrations.sh" ]; then
+    ./run-migrations.sh
 else
     echo "Warning: Migration script not found, running migrations directly..."
     migrate -path "$MIGRATIONS_DIR" -database "$DATABASE_URL" up

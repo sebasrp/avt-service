@@ -169,11 +169,17 @@ jobs:
           username: ${{ secrets.HETZNER_USERNAME }}
           key: ${{ secrets.HETZNER_SSH_KEY }}
           script: |
-            # Navigate to app directory
-            cd /opt/avt-service
-            
-            # Pull latest code (for docker-compose.prod.yml)
-            git pull origin main
+            # Check if repository exists
+            if [ ! -d "/opt/avt-service/.git" ]; then
+              echo "Repository not found, cloning..."
+              git clone https://github.com/${{ github.repository }}.git /opt/avt-service
+              cd /opt/avt-service
+            else
+              # Navigate to app directory and pull latest
+              cd /opt/avt-service
+              echo "Pulling latest changes..."
+              git pull origin main
+            fi
             
             # Create/update .env file with secrets from GitHub
             cat > .env << EOF
