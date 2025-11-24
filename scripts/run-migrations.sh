@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 # Script to run database migrations
 
 set -e
@@ -9,16 +9,12 @@ MIGRATIONS_DIR="${MIGRATIONS_DIR:-internal/database/migrations}"
 
 # Find migrate tool in common locations
 MIGRATE_BIN=""
-if command -v migrate &> /dev/null; then
+if command -v migrate > /dev/null 2>&1; then
     MIGRATE_BIN="migrate"
-elif [ -f "$HOME/go/bin/migrate" ]; then
-    MIGRATE_BIN="$HOME/go/bin/migrate"
-elif [ -f "$(go env GOPATH)/bin/migrate" ]; then
-    MIGRATE_BIN="$(go env GOPATH)/bin/migrate"
+elif [ -f "/usr/local/bin/migrate" ]; then
+    MIGRATE_BIN="/usr/local/bin/migrate"
 else
     echo "Error: migrate tool is not installed"
-    echo "Install it with: go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest"
-    echo "Make sure $(go env GOPATH)/bin is in your PATH"
     exit 1
 fi
 
