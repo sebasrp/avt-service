@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-contrib/gzip"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -58,6 +59,16 @@ func NewRateLimitMiddleware() gin.HandlerFunc {
 // New creates a new Gin router with all routes configured
 func New(repo repository.TelemetryRepository) *gin.Engine {
 	router := gin.Default()
+
+	// Add CORS middleware for web client support
+	router.Use(cors.New(cors.Config{
+		AllowOrigins:     []string{"*"},
+		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Content-Type", "Content-Encoding", "X-Request-ID", "X-Batch-ID"},
+		ExposeHeaders:    []string{"Content-Length", "X-Request-ID"},
+		AllowCredentials: false,
+		MaxAge:           12 * time.Hour,
+	}))
 
 	// Add middlewares
 	router.Use(RequestIDMiddleware())
