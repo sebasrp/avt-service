@@ -28,7 +28,7 @@ func (h *TelemetryHandler) HandlePost(c *gin.Context) {
 
 	// Parse JSON body
 	if err := c.ShouldBindJSON(&telemetry); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
+		c.PureJSON(http.StatusBadRequest, gin.H{
 			"error": "Invalid JSON payload",
 		})
 		return
@@ -36,7 +36,7 @@ func (h *TelemetryHandler) HandlePost(c *gin.Context) {
 
 	// Validate telemetry data
 	if err := telemetry.Validate(); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
+		c.PureJSON(http.StatusBadRequest, gin.H{
 			"error":   "Validation failed",
 			"details": err.Error(),
 		})
@@ -46,7 +46,7 @@ func (h *TelemetryHandler) HandlePost(c *gin.Context) {
 	// Save to database
 	if err := h.repo.Save(c.Request.Context(), &telemetry); err != nil {
 		log.Printf("Error saving telemetry to database: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{
+		c.PureJSON(http.StatusInternalServerError, gin.H{
 			"error": "Failed to save telemetry data",
 		})
 		return
@@ -56,7 +56,7 @@ func (h *TelemetryHandler) HandlePost(c *gin.Context) {
 	logTelemetry(telemetry)
 
 	// Return success response
-	c.JSON(http.StatusCreated, gin.H{
+	c.PureJSON(http.StatusCreated, gin.H{
 		"message":   "Telemetry data received successfully",
 		"timestamp": telemetry.Timestamp,
 		"id":        telemetry.ID,
@@ -69,7 +69,7 @@ func (h *TelemetryHandler) HandleBatchPost(c *gin.Context) {
 
 	// Parse JSON body
 	if err := c.ShouldBindJSON(&telemetryBatch); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
+		c.PureJSON(http.StatusBadRequest, gin.H{
 			"error":   "Invalid JSON payload",
 			"details": err.Error(),
 		})
@@ -78,14 +78,14 @@ func (h *TelemetryHandler) HandleBatchPost(c *gin.Context) {
 
 	// Validate batch size
 	if len(telemetryBatch) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{
+		c.PureJSON(http.StatusBadRequest, gin.H{
 			"error": "Empty batch",
 		})
 		return
 	}
 
 	if len(telemetryBatch) > 1000 {
-		c.JSON(http.StatusBadRequest, gin.H{
+		c.PureJSON(http.StatusBadRequest, gin.H{
 			"error": "Batch too large (max 1000 records)",
 		})
 		return
@@ -94,7 +94,7 @@ func (h *TelemetryHandler) HandleBatchPost(c *gin.Context) {
 	// Validate each telemetry record
 	for i, telemetry := range telemetryBatch {
 		if err := telemetry.Validate(); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
+			c.PureJSON(http.StatusBadRequest, gin.H{
 				"error":   fmt.Sprintf("Validation failed for record %d", i),
 				"details": err.Error(),
 			})
@@ -111,7 +111,7 @@ func (h *TelemetryHandler) HandleBatchPost(c *gin.Context) {
 	// Save batch to database
 	if err := h.repo.SaveBatch(c.Request.Context(), telemetryPointers); err != nil {
 		log.Printf("Error saving telemetry batch to database: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{
+		c.PureJSON(http.StatusInternalServerError, gin.H{
 			"error": "Failed to save telemetry batch",
 		})
 		return
@@ -130,7 +130,7 @@ func (h *TelemetryHandler) HandleBatchPost(c *gin.Context) {
 	log.Printf("Batch telemetry: Saved %d records", len(telemetryBatch))
 
 	// Return success response with IDs
-	c.JSON(http.StatusCreated, gin.H{
+	c.PureJSON(http.StatusCreated, gin.H{
 		"message": fmt.Sprintf("Batch telemetry data received successfully (%d records)", len(telemetryBatch)),
 		"count":   len(telemetryBatch),
 		"ids":     savedIDs,

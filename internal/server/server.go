@@ -83,7 +83,7 @@ func New(repo repository.TelemetryRepository) *gin.Engine {
 	{
 		// Health check endpoint for network quality detection
 		v1.GET("/health", func(c *gin.Context) {
-			c.JSON(http.StatusOK, gin.H{
+			c.PureJSON(http.StatusOK, gin.H{
 				"status":    "healthy",
 				"timestamp": time.Now().UTC().Format(time.RFC3339),
 				"version":   "1.0.0",
