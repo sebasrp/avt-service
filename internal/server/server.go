@@ -58,7 +58,25 @@ func NewRateLimitMiddleware() gin.HandlerFunc {
 
 // New creates a new Gin router with all routes configured
 func New(repo repository.TelemetryRepository) *gin.Engine {
-	router := gin.Default()
+	// Set Gin to release mode to disable ANSI colors in logs
+	gin.SetMode(gin.ReleaseMode)
+
+	// Use gin.New() instead of gin.Default() to have explicit control over middleware
+	// gin.Default() includes colored logging which contaminates HTTP responses with ANSI codes
+	router := gin.New()
+
+	// Add recovery middleware (without colored output)
+	router.Use(gin.Recovery())
+
+	// Add logger middleware without colored output
+	router.Use(gin.LoggerWithConfig(gin.LoggerConfig{
+		Formatter: func(param gin.LogFormatterParams) string {
+			// Custom log format without ANSI color codes
+			return ""
+		},
+		Output:    nil,                        // Disable output to prevent any log contamination
+		SkipPaths: []string{"/api/v1/health"}, // Skip health check logging
+	}))
 
 	// Add CORS middleware for web client support
 	router.Use(cors.New(cors.Config{
