@@ -70,7 +70,7 @@ func New(repo repository.TelemetryRepository) *gin.Engine {
 
 	// Add logger middleware without colored output
 	router.Use(gin.LoggerWithConfig(gin.LoggerConfig{
-		Formatter: func(param gin.LogFormatterParams) string {
+		Formatter: func(_ gin.LogFormatterParams) string {
 			// Custom log format without ANSI color codes
 			return ""
 		},
