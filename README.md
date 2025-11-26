@@ -1,5 +1,7 @@
 # AVT Service
 
+[![CI/CD Pipeline](https://github.com/sebasrp/avt-service/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/sebasrp/avt-service/actions/workflows/ci-cd.yml)
+
 A high-performance backend service for Automatic Vehicle Telemetry ingestion and storage using Go, Gin, and TimescaleDB.
 
 ## Quick Start
