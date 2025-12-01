@@ -38,8 +38,8 @@ func TestGenerateAccessToken(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, userID.String(), claims.UserID)
 	assert.Equal(t, email, claims.Email)
-	assert.Equal(t, "avt-service", claims.RegisteredClaims.Issuer)
-	assert.Equal(t, userID.String(), claims.RegisteredClaims.Subject)
+	assert.Equal(t, "avt-service", claims.Issuer)
+	assert.Equal(t, userID.String(), claims.Subject)
 }
 
 func TestGenerateRefreshToken(t *testing.T) {
@@ -246,10 +246,10 @@ func TestAccessAndRefreshTokenDifferentTTLs(t *testing.T) {
 	require.NoError(t, err)
 
 	// Access token should expire sooner than refresh token
-	assert.True(t, accessClaims.RegisteredClaims.ExpiresAt.Before(refreshClaims.RegisteredClaims.ExpiresAt.Time))
+	assert.True(t, accessClaims.ExpiresAt.Before(refreshClaims.ExpiresAt.Time))
 
 	// Refresh token expiry should match returned expiresAt
-	assert.WithinDuration(t, expiresAt, refreshClaims.RegisteredClaims.ExpiresAt.Time, time.Second)
+	assert.WithinDuration(t, expiresAt, refreshClaims.ExpiresAt.Time, time.Second)
 }
 
 func BenchmarkGenerateAccessToken(b *testing.B) {
