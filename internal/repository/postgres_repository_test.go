@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
@@ -20,6 +21,18 @@ func setupTestDB(t *testing.T) (*database.DB, func()) {
 	t.Helper()
 
 	ctx := context.Background()
+
+	// Set Docker socket for Colima if not already set
+	if os.Getenv("DOCKER_HOST") == "" {
+		// Try common Colima socket location
+		colimaSocket := os.ExpandEnv("$HOME/.colima/default/docker.sock")
+		if _, err := os.Stat(colimaSocket); err == nil {
+			os.Setenv("DOCKER_HOST", "unix://"+colimaSocket)
+			// Disable Ryuk container for Colima (socket can't be mounted)
+			os.Setenv("TESTCONTAINERS_RYUK_DISABLED", "true")
+			t.Logf("Using Colima Docker socket: %s (Ryuk disabled)", colimaSocket)
+		}
+	}
 
 	// Create TimescaleDB container with PostGIS support
 	pgContainer, err := postgres.Run(ctx,
@@ -73,12 +86,24 @@ func runTestMigrations(db *database.DB) error {
 		`CREATE EXTENSION IF NOT EXISTS timescaledb;`,
 		`CREATE EXTENSION IF NOT EXISTS postgis;`,
 
+		// Create users table (needed for foreign keys)
+		`CREATE TABLE users (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			email VARCHAR(255) UNIQUE NOT NULL,
+			password_hash VARCHAR(255) NOT NULL,
+			email_verified BOOLEAN DEFAULT FALSE,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			is_active BOOLEAN DEFAULT TRUE
+		);`,
+
 		// Create telemetry table
 		`CREATE TABLE telemetry (
 			id BIGSERIAL,
 			recorded_at TIMESTAMPTZ NOT NULL,
 			device_id VARCHAR(50),
 			session_id UUID,
+			user_id UUID,
 			itow BIGINT,
 			time_accuracy BIGINT,
 			validity_flags INTEGER,
@@ -111,9 +136,14 @@ func runTestMigrations(db *database.DB) error {
 		// Convert to hypertable
 		`SELECT create_hypertable('telemetry', 'recorded_at');`,
 
+		// Add foreign key constraint for user_id (after hypertable creation)
+		`ALTER TABLE telemetry ADD CONSTRAINT fk_telemetry_user
+			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL;`,
+
 		// Create indexes
 		`CREATE INDEX idx_telemetry_device_time ON telemetry (device_id, recorded_at DESC);`,
 		`CREATE INDEX idx_telemetry_session ON telemetry (session_id, recorded_at DESC) WHERE session_id IS NOT NULL;`,
+		`CREATE INDEX idx_telemetry_user ON telemetry(user_id, recorded_at DESC) WHERE user_id IS NOT NULL;`,
 
 		// Create upload_batches table for idempotency
 		`CREATE TABLE upload_batches (
@@ -122,13 +152,19 @@ func runTestMigrations(db *database.DB) error {
 			uploaded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			server_response TEXT,
 			device_id VARCHAR(50),
-			session_id UUID
+			session_id UUID,
+			user_id UUID
 		);`,
+
+		// Add foreign key for upload_batches
+		`ALTER TABLE upload_batches ADD CONSTRAINT fk_upload_batches_user
+			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL;`,
 
 		// Create indexes for upload_batches
 		`CREATE INDEX idx_upload_batches_uploaded_at ON upload_batches (uploaded_at DESC);`,
 		`CREATE INDEX idx_upload_batches_device ON upload_batches (device_id, uploaded_at DESC) WHERE device_id IS NOT NULL;`,
 		`CREATE INDEX idx_upload_batches_session ON upload_batches (session_id, uploaded_at DESC) WHERE session_id IS NOT NULL;`,
+		`CREATE INDEX idx_upload_batches_user ON upload_batches(user_id, uploaded_at DESC) WHERE user_id IS NOT NULL;`,
 	}
 
 	ctx := context.Background()
