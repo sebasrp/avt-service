@@ -102,6 +102,19 @@ func runTestMigrations(db *database.DB) error {
 			is_active BOOLEAN DEFAULT TRUE
 		);`,
 
+		// Create refresh_tokens table
+		`CREATE TABLE refresh_tokens (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			token_hash VARCHAR(255) NOT NULL,
+			expires_at TIMESTAMPTZ NOT NULL,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			revoked_at TIMESTAMPTZ,
+			replaced_by UUID REFERENCES refresh_tokens(id),
+			user_agent TEXT,
+			ip_address INET
+		);`,
+
 		// Create telemetry table
 		`CREATE TABLE telemetry (
 			id BIGSERIAL,
