@@ -92,8 +92,13 @@ func runTestMigrations(db *database.DB) error {
 			email VARCHAR(255) UNIQUE NOT NULL,
 			password_hash VARCHAR(255) NOT NULL,
 			email_verified BOOLEAN DEFAULT FALSE,
+			verification_token VARCHAR(255),
+			verification_token_expires_at TIMESTAMPTZ,
+			reset_token VARCHAR(255),
+			reset_token_expires_at TIMESTAMPTZ,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			last_login_at TIMESTAMPTZ,
 			is_active BOOLEAN DEFAULT TRUE
 		);`,
 
