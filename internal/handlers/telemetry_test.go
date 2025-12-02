@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 
 	"github.com/sebasr/avt-service/internal/models"
 	"github.com/sebasr/avt-service/internal/repository"
@@ -627,4 +628,285 @@ func TestTelemetryHandler_BatchPostWithSessionID(t *testing.T) {
 	if count, ok := response["count"].(float64); !ok || count != 1 {
 		t.Errorf("Expected count 1, got %v", response["count"])
 	}
+}
+
+// TestTelemetryHandler_WithAuthentication tests telemetry upload with authenticated user
+func TestTelemetryHandler_WithAuthentication(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	userID := uuid.New()
+	deviceID := "test-device-123"
+
+	t.Run("authenticated user with device claiming", func(t *testing.T) {
+		mockRepo := repository.NewMockRepository()
+		mockDeviceRepo := &repository.MockDeviceRepository{}
+
+		// Mock device creation
+		var createdDevice *models.Device
+		mockDeviceRepo.CreateFunc = func(_ context.Context, device *models.Device) error {
+			createdDevice = device
+			return nil
+		}
+
+		mockDeviceRepo.GetByDeviceIDFunc = func(_ context.Context, _ string) (*models.Device, error) {
+			return nil, errors.New("device not found")
+		}
+
+		handler := NewTelemetryHandler(mockRepo, mockDeviceRepo)
+
+		router := gin.New()
+		// Simulate auth middleware setting user context
+		router.Use(func(c *gin.Context) {
+			c.Set("user_id", userID)
+			c.Set("user_email", "test@example.com")
+			c.Next()
+		})
+		router.POST("/api/telemetry", handler.HandlePost)
+
+		telemetry := models.TelemetryData{
+			Timestamp: time.Now().UTC(),
+			DeviceID:  deviceID,
+			GPS:       models.GpsData{Latitude: 42.0, Longitude: 23.0},
+			Motion:    models.MotionData{},
+		}
+
+		body, _ := json.Marshal(telemetry)
+		req, _ := http.NewRequest("POST", "/api/telemetry", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusCreated {
+			t.Errorf("Expected status %d, got %d", http.StatusCreated, w.Code)
+		}
+
+		// Verify device was created and claimed
+		if createdDevice == nil {
+			t.Error("Expected device to be created")
+		} else {
+			if createdDevice.DeviceID != deviceID {
+				t.Errorf("Expected device ID %s, got %s", deviceID, createdDevice.DeviceID)
+			}
+			if createdDevice.UserID != userID {
+				t.Errorf("Expected user ID %s, got %s", userID, createdDevice.UserID)
+			}
+			if !createdDevice.IsActive {
+				t.Error("Expected device to be active")
+			}
+		}
+	})
+
+	t.Run("authenticated user with existing device", func(t *testing.T) {
+		mockRepo := repository.NewMockRepository()
+		mockDeviceRepo := &repository.MockDeviceRepository{}
+
+		existingDevice := &models.Device{
+			ID:       uuid.New(),
+			DeviceID: deviceID,
+			UserID:   userID,
+			IsActive: true,
+		}
+
+		mockDeviceRepo.GetByDeviceIDFunc = func(_ context.Context, _ string) (*models.Device, error) {
+			return existingDevice, nil
+		}
+
+		lastSeenUpdated := false
+		mockDeviceRepo.UpdateLastSeenFunc = func(_ context.Context, _ string) error {
+			lastSeenUpdated = true
+			return nil
+		}
+
+		handler := NewTelemetryHandler(mockRepo, mockDeviceRepo)
+
+		router := gin.New()
+		router.Use(func(c *gin.Context) {
+			c.Set("user_id", userID)
+			c.Next()
+		})
+		router.POST("/api/telemetry", handler.HandlePost)
+
+		telemetry := models.TelemetryData{
+			Timestamp: time.Now().UTC(),
+			DeviceID:  deviceID,
+			GPS:       models.GpsData{},
+			Motion:    models.MotionData{},
+		}
+
+		body, _ := json.Marshal(telemetry)
+		req, _ := http.NewRequest("POST", "/api/telemetry", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusCreated {
+			t.Errorf("Expected status %d, got %d", http.StatusCreated, w.Code)
+		}
+
+		if !lastSeenUpdated {
+			t.Error("Expected last_seen to be updated")
+		}
+	})
+
+	t.Run("authenticated user without device ID", func(t *testing.T) {
+		mockRepo := repository.NewMockRepository()
+		mockDeviceRepo := &repository.MockDeviceRepository{}
+
+		handler := NewTelemetryHandler(mockRepo, mockDeviceRepo)
+
+		router := gin.New()
+		router.Use(func(c *gin.Context) {
+			c.Set("user_id", userID)
+			c.Next()
+		})
+		router.POST("/api/telemetry", handler.HandlePost)
+
+		telemetry := models.TelemetryData{
+			Timestamp: time.Now().UTC(),
+			// No DeviceID
+			GPS:    models.GpsData{},
+			Motion: models.MotionData{},
+		}
+
+		body, _ := json.Marshal(telemetry)
+		req, _ := http.NewRequest("POST", "/api/telemetry", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		// Should still succeed, just without device claiming
+		if w.Code != http.StatusCreated {
+			t.Errorf("Expected status %d, got %d", http.StatusCreated, w.Code)
+		}
+	})
+
+	t.Run("unauthenticated user - backward compatibility", func(t *testing.T) {
+		mockRepo := repository.NewMockRepository()
+		mockDeviceRepo := &repository.MockDeviceRepository{}
+
+		handler := NewTelemetryHandler(mockRepo, mockDeviceRepo)
+
+		router := gin.New()
+		// No auth middleware - simulates unauthenticated request
+		router.POST("/api/telemetry", handler.HandlePost)
+
+		telemetry := models.TelemetryData{
+			Timestamp: time.Now().UTC(),
+			DeviceID:  deviceID,
+			GPS:       models.GpsData{},
+			Motion:    models.MotionData{},
+		}
+
+		body, _ := json.Marshal(telemetry)
+		req, _ := http.NewRequest("POST", "/api/telemetry", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		// Should still work for backward compatibility
+		if w.Code != http.StatusCreated {
+			t.Errorf("Expected status %d, got %d", http.StatusCreated, w.Code)
+		}
+	})
+}
+
+// TestTelemetryHandler_BatchWithAuthentication tests batch telemetry upload with authenticated user
+func TestTelemetryHandler_BatchWithAuthentication(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	userID := uuid.New()
+	deviceID := "test-device-batch-123"
+	now := time.Now().UTC()
+
+	t.Run("authenticated batch upload with device claiming", func(t *testing.T) {
+		mockRepo := repository.NewMockRepository()
+		mockDeviceRepo := &repository.MockDeviceRepository{}
+
+		var createdDevice *models.Device
+		mockDeviceRepo.CreateFunc = func(_ context.Context, device *models.Device) error {
+			createdDevice = device
+			return nil
+		}
+
+		mockDeviceRepo.GetByDeviceIDFunc = func(_ context.Context, _ string) (*models.Device, error) {
+			return nil, errors.New("device not found")
+		}
+
+		handler := NewTelemetryHandler(mockRepo, mockDeviceRepo)
+
+		router := gin.New()
+		router.Use(func(c *gin.Context) {
+			c.Set("user_id", userID)
+			c.Next()
+		})
+		router.POST("/api/telemetry/batch", handler.HandleBatchPost)
+
+		batch := []models.TelemetryData{
+			{
+				Timestamp: now,
+				DeviceID:  deviceID,
+				GPS:       models.GpsData{Latitude: 42.0, Longitude: 23.0},
+				Motion:    models.MotionData{},
+			},
+			{
+				Timestamp: now.Add(100 * time.Millisecond),
+				DeviceID:  deviceID,
+				GPS:       models.GpsData{Latitude: 42.1, Longitude: 23.1},
+				Motion:    models.MotionData{},
+			},
+		}
+
+		body, _ := json.Marshal(batch)
+		req, _ := http.NewRequest("POST", "/api/telemetry/batch", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusCreated {
+			t.Errorf("Expected status %d, got %d. Body: %s", http.StatusCreated, w.Code, w.Body.String())
+		}
+
+		// Verify device was created
+		if createdDevice == nil {
+			t.Error("Expected device to be created")
+		} else if createdDevice.UserID != userID {
+			t.Errorf("Expected user ID %s, got %s", userID, createdDevice.UserID)
+		}
+	})
+
+	t.Run("unauthenticated batch upload - backward compatibility", func(t *testing.T) {
+		mockRepo := repository.NewMockRepository()
+		mockDeviceRepo := &repository.MockDeviceRepository{}
+
+		handler := NewTelemetryHandler(mockRepo, mockDeviceRepo)
+
+		router := gin.New()
+		// No auth middleware
+		router.POST("/api/telemetry/batch", handler.HandleBatchPost)
+
+		batch := []models.TelemetryData{
+			{
+				Timestamp: now,
+				GPS:       models.GpsData{},
+				Motion:    models.MotionData{},
+			},
+		}
+
+		body, _ := json.Marshal(batch)
+		req, _ := http.NewRequest("POST", "/api/telemetry/batch", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		// Should still work for backward compatibility
+		if w.Code != http.StatusCreated {
+			t.Errorf("Expected status %d, got %d", http.StatusCreated, w.Code)
+		}
+	})
 }
