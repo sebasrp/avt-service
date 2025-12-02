@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -33,8 +34,8 @@ func (r *PostgresRefreshTokenRepository) Create(ctx context.Context, token *mode
 	query := `
 		INSERT INTO refresh_tokens (
 			id, user_id, token_hash, expires_at, created_at,
-			user_agent, ip_address
-		) VALUES ($1, $2, $3, $4, $5, $6, $7)
+			revoked_at, replaced_by, user_agent, ip_address
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 	`
 
 	_, err := r.db.ExecContext(
@@ -45,11 +46,17 @@ func (r *PostgresRefreshTokenRepository) Create(ctx context.Context, token *mode
 		token.TokenHash,
 		token.ExpiresAt,
 		token.CreatedAt,
+		token.RevokedAt,
+		token.ReplacedBy,
 		token.UserAgent,
 		token.IPAddress,
 	)
 
-	return err
+	if err != nil {
+		return fmt.Errorf("failed to insert refresh token: %w", err)
+	}
+
+	return nil
 }
 
 // GetByHash retrieves a refresh token by its hash

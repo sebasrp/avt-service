@@ -75,6 +75,7 @@ func (s *JWTService) GenerateRefreshToken(userID uuid.UUID, email string) (strin
 		UserID: userID.String(),
 		Email:  email,
 		RegisteredClaims: jwt.RegisteredClaims{
+			ID:        uuid.New().String(), // Unique JWT ID to prevent duplicate tokens
 			ExpiresAt: jwt.NewNumericDate(expiresAt),
 			IssuedAt:  jwt.NewNumericDate(now),
 			NotBefore: jwt.NewNumericDate(now),

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
@@ -29,7 +30,21 @@ func init() {
 
 // setupTestDatabase creates a test database using Testcontainers
 func setupTestDatabase(t *testing.T) (*database.DB, func()) {
+	t.Helper()
+
 	ctx := context.Background()
+
+	// Set Docker socket for Colima if not already set
+	if os.Getenv("DOCKER_HOST") == "" {
+		// Try common Colima socket location
+		colimaSocket := os.ExpandEnv("$HOME/.colima/default/docker.sock")
+		if _, err := os.Stat(colimaSocket); err == nil {
+			os.Setenv("DOCKER_HOST", "unix://"+colimaSocket)
+			// Disable Ryuk container for Colima (socket can't be mounted)
+			os.Setenv("TESTCONTAINERS_RYUK_DISABLED", "true")
+			t.Logf("Using Colima Docker socket: %s (Ryuk disabled)", colimaSocket)
+		}
+	}
 
 	// Create PostgreSQL container with TimescaleDB
 	req := testcontainers.ContainerRequest{
@@ -84,7 +99,7 @@ func setupTestDatabase(t *testing.T) (*database.DB, func()) {
 }
 
 // runMigrations applies all up migrations
-func runMigrations(db *database.DB, path string) error {
+func runMigrations(db *database.DB, _ string) error {
 	// Note: This is a simplified migration runner for tests.
 	// In production, use a proper migration tool like golang-migrate or goose
 
@@ -176,7 +191,7 @@ func runMigrations(db *database.DB, path string) error {
 			expires_at TIMESTAMPTZ NOT NULL,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			revoked_at TIMESTAMPTZ,
-			replaced_by UUID REFERENCES refresh_tokens(id) ON DELETE SET NULL,
+			replaced_by UUID,
 			user_agent TEXT,
 			ip_address VARCHAR(45)
 		);
@@ -187,6 +202,61 @@ func runMigrations(db *database.DB, path string) error {
 	`)
 	if err != nil {
 		return fmt.Errorf("failed to create refresh_tokens table: %w", err)
+	}
+
+	// Create sessions table
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS sessions (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			device_id VARCHAR(50) NOT NULL,
+			started_at TIMESTAMPTZ NOT NULL,
+			ended_at TIMESTAMPTZ,
+			name VARCHAR(255),
+			location VARCHAR(255),
+			notes TEXT,
+			total_distance DOUBLE PRECISION,
+			max_speed DOUBLE PRECISION,
+			avg_speed DOUBLE PRECISION,
+			max_g_force DOUBLE PRECISION,
+			data_points_count BIGINT DEFAULT 0,
+			created_at TIMESTAMPTZ DEFAULT NOW(),
+			updated_at TIMESTAMPTZ DEFAULT NOW(),
+			user_id UUID
+		);
+		
+		CREATE INDEX IF NOT EXISTS idx_sessions_device ON sessions(device_id, started_at DESC);
+		CREATE INDEX IF NOT EXISTS idx_sessions_started_at ON sessions(started_at DESC);
+		CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id, started_at DESC) WHERE user_id IS NOT NULL;
+		
+		DROP TRIGGER IF EXISTS update_sessions_updated_at ON sessions;
+		CREATE TRIGGER update_sessions_updated_at
+			BEFORE UPDATE ON sessions
+			FOR EACH ROW
+			EXECUTE FUNCTION update_updated_at_column();
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to create sessions table: %w", err)
+	}
+
+	// Create upload_batches table
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS upload_batches (
+			batch_id VARCHAR(36) PRIMARY KEY,
+			record_count INTEGER NOT NULL,
+			uploaded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			server_response TEXT,
+			device_id VARCHAR(50),
+			session_id UUID,
+			user_id UUID
+		);
+		
+		CREATE INDEX IF NOT EXISTS idx_upload_batches_uploaded_at ON upload_batches(uploaded_at DESC);
+		CREATE INDEX IF NOT EXISTS idx_upload_batches_device ON upload_batches(device_id, uploaded_at DESC) WHERE device_id IS NOT NULL;
+		CREATE INDEX IF NOT EXISTS idx_upload_batches_session ON upload_batches(session_id, uploaded_at DESC) WHERE session_id IS NOT NULL;
+		CREATE INDEX IF NOT EXISTS idx_upload_batches_user ON upload_batches(user_id, uploaded_at DESC) WHERE user_id IS NOT NULL;
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to create upload_batches table: %w", err)
 	}
 
 	// Create devices table
@@ -219,16 +289,20 @@ func runMigrations(db *database.DB, path string) error {
 	}
 
 	// Create telemetry table
+	// Note: No foreign key constraint on user_id due to TimescaleDB hypertable limitations
+	// Foreign keys on hypertables require the partitioning column in the referenced table's primary key
+	// Note: location column is TEXT instead of GEOGRAPHY to avoid PostGIS dependency in tests
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS telemetry (
-			id BIGSERIAL PRIMARY KEY,
+			id BIGSERIAL,
 			recorded_at TIMESTAMPTZ NOT NULL,
 			device_id VARCHAR(255),
 			session_id VARCHAR(255),
-			user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+			user_id UUID,
 			itow BIGINT NOT NULL,
 			latitude DOUBLE PRECISION NOT NULL,
 			longitude DOUBLE PRECISION NOT NULL,
+			location TEXT,
 			wgs_altitude DOUBLE PRECISION NOT NULL,
 			msl_altitude DOUBLE PRECISION NOT NULL,
 			speed DOUBLE PRECISION NOT NULL,
@@ -250,7 +324,8 @@ func runMigrations(db *database.DB, path string) error {
 			battery DOUBLE PRECISION NOT NULL,
 			is_charging BOOLEAN NOT NULL,
 			time_accuracy BIGINT NOT NULL,
-			validity_flags INTEGER NOT NULL
+			validity_flags INTEGER NOT NULL,
+			PRIMARY KEY (recorded_at, id)
 		);
 		
 		SELECT create_hypertable('telemetry', 'recorded_at', if_not_exists => TRUE);
@@ -486,7 +561,7 @@ func TestTokenRefreshFlow(t *testing.T) {
 	require.Equal(t, http.StatusCreated, w.Code)
 
 	var registerResponse map[string]interface{}
-	json.Unmarshal(w.Body.Bytes(), &registerResponse)
+	_ = json.Unmarshal(w.Body.Bytes(), &registerResponse)
 	refreshToken := registerResponse["refreshToken"].(string)
 
 	t.Run("successful token refresh", func(t *testing.T) {
@@ -573,7 +648,7 @@ func TestProtectedEndpointAccess(t *testing.T) {
 	require.Equal(t, http.StatusCreated, w.Code)
 
 	var registerResponse map[string]interface{}
-	json.Unmarshal(w.Body.Bytes(), &registerResponse)
+	_ = json.Unmarshal(w.Body.Bytes(), &registerResponse)
 	accessToken := registerResponse["accessToken"].(string)
 
 	t.Run("access protected endpoint with valid token", func(t *testing.T) {
@@ -652,7 +727,7 @@ func TestDeviceClaimingFlow(t *testing.T) {
 	require.Equal(t, http.StatusCreated, w.Code)
 
 	var registerResponse map[string]interface{}
-	json.Unmarshal(w.Body.Bytes(), &registerResponse)
+	_ = json.Unmarshal(w.Body.Bytes(), &registerResponse)
 	accessToken := registerResponse["accessToken"].(string)
 	userMap := registerResponse["user"].(map[string]interface{})
 	userID, _ := uuid.Parse(userMap["id"].(string))

@@ -22,6 +22,7 @@ func NewPostgresRepository(db *database.DB) *PostgresRepository {
 
 // Save saves a single telemetry data point
 func (r *PostgresRepository) Save(ctx context.Context, data *models.TelemetryData) error {
+	// Try with PostGIS first, fall back to without if PostGIS is not available
 	query := `
 		INSERT INTO telemetry (
 			recorded_at, device_id, session_id, itow, time_accuracy, validity_flags,
@@ -58,6 +59,46 @@ func (r *PostgresRepository) Save(ctx context.Context, data *models.TelemetryDat
 		data.Battery, data.IsCharging,
 	).Scan(&data.ID)
 
+	// If PostGIS functions are not available, try without location column
+	if err != nil && (err.Error() == "pq: type \"geography\" does not exist" ||
+		err.Error() == "ERROR: type \"geography\" does not exist (SQLSTATE 42704)") {
+		queryNoLocation := `
+			INSERT INTO telemetry (
+				recorded_at, device_id, session_id, itow, time_accuracy, validity_flags,
+				latitude, longitude,
+				wgs_altitude, msl_altitude, speed, heading,
+				num_satellites, fix_status, is_fix_valid,
+				horizontal_accuracy, vertical_accuracy, speed_accuracy, heading_accuracy, pdop,
+				g_force_x, g_force_y, g_force_z,
+				rotation_x, rotation_y, rotation_z,
+				battery, is_charging
+			) VALUES (
+				$1, $2, $3, $4, $5, $6,
+				$7, $8,
+				$9, $10, $11, $12,
+				$13, $14, $15,
+				$16, $17, $18, $19, $20,
+				$21, $22, $23,
+				$24, $25, $26,
+				$27, $28
+			)
+			RETURNING id
+		`
+
+		err = r.db.QueryRowContext(ctx, queryNoLocation,
+			data.Timestamp, data.DeviceID, data.SessionID,
+			data.ITOW, data.TimeAccuracy, data.ValidityFlags,
+			data.GPS.Latitude, data.GPS.Longitude,
+			data.GPS.WgsAltitude, data.GPS.MslAltitude, data.GPS.Speed, data.GPS.Heading,
+			data.GPS.NumSatellites, data.GPS.FixStatus, data.GPS.IsFixValid,
+			data.GPS.HorizontalAccuracy, data.GPS.VerticalAccuracy,
+			data.GPS.SpeedAccuracy, data.GPS.HeadingAccuracy, data.GPS.PDOP,
+			data.Motion.GForceX, data.Motion.GForceY, data.Motion.GForceZ,
+			data.Motion.RotationX, data.Motion.RotationY, data.Motion.RotationZ,
+			data.Battery, data.IsCharging,
+		).Scan(&data.ID)
+	}
+
 	if err != nil {
 		return fmt.Errorf("failed to insert telemetry: %w", err)
 	}
@@ -79,6 +120,7 @@ func (r *PostgresRepository) SaveBatch(ctx context.Context, dataPoints []*models
 		_ = tx.Rollback() // Rollback is safe to call even after Commit
 	}()
 
+	// Try with PostGIS first
 	stmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO telemetry (
 			recorded_at, device_id, session_id, itow, time_accuracy, validity_flags,
@@ -101,6 +143,32 @@ func (r *PostgresRepository) SaveBatch(ctx context.Context, dataPoints []*models
 		)
 		RETURNING id
 	`)
+
+	// If PostGIS is not available, use query without location
+	if err != nil {
+		stmt, err = tx.PrepareContext(ctx, `
+			INSERT INTO telemetry (
+				recorded_at, device_id, session_id, itow, time_accuracy, validity_flags,
+				latitude, longitude,
+				wgs_altitude, msl_altitude, speed, heading,
+				num_satellites, fix_status, is_fix_valid,
+				horizontal_accuracy, vertical_accuracy, speed_accuracy, heading_accuracy, pdop,
+				g_force_x, g_force_y, g_force_z,
+				rotation_x, rotation_y, rotation_z,
+				battery, is_charging
+			) VALUES (
+				$1, $2, $3, $4, $5, $6,
+				$7, $8,
+				$9, $10, $11, $12,
+				$13, $14, $15,
+				$16, $17, $18, $19, $20,
+				$21, $22, $23,
+				$24, $25, $26,
+				$27, $28
+			)
+			RETURNING id
+		`)
+	}
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
 	}

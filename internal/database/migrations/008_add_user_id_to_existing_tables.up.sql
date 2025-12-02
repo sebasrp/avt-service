@@ -1,9 +1,10 @@
 -- Add user_id column to existing tables for user ownership tracking
 
--- Add user_id to telemetry table (hypertable - add column first, then constraint)
+-- Add user_id to telemetry table (hypertable - no foreign key constraint due to TimescaleDB limitations)
+-- Note: Foreign keys on hypertables require the partitioning column in the referenced table's primary key
+-- Since users table is not partitioned by time, we cannot add a foreign key constraint
+-- Application logic must ensure referential integrity
 ALTER TABLE telemetry ADD COLUMN user_id UUID;
-ALTER TABLE telemetry ADD CONSTRAINT fk_telemetry_user
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL;
 CREATE INDEX idx_telemetry_user ON telemetry(user_id, recorded_at DESC) WHERE user_id IS NOT NULL;
 
 -- Add user_id to sessions table

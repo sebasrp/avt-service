@@ -60,10 +60,11 @@ CREATE TABLE telemetry (
 SELECT create_hypertable('telemetry', 'recorded_at');
 
 -- Create indexes for common query patterns
+-- Note: For hypertables, unique indexes must include the partitioning column (recorded_at)
 CREATE INDEX idx_telemetry_device_time ON telemetry (device_id, recorded_at DESC);
 CREATE INDEX idx_telemetry_session ON telemetry (session_id, recorded_at DESC) WHERE session_id IS NOT NULL;
 CREATE INDEX idx_telemetry_location ON telemetry USING GIST(location);
-CREATE INDEX idx_telemetry_speed ON telemetry (speed) WHERE speed > 0;
+CREATE INDEX idx_telemetry_speed ON telemetry (speed, recorded_at DESC) WHERE speed > 0;
 
 -- Enable compression (compress data older than 7 days)
 ALTER TABLE telemetry SET (
