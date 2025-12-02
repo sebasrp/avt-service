@@ -129,6 +129,8 @@ make migrate
 
 The service is configured via environment variables:
 
+### Database Configuration
+
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PORT` | `8080` | HTTP server port |
@@ -143,10 +145,27 @@ The service is configured via environment variables:
 | `DB_MAX_IDLE_CONNECTIONS` | `5` | Maximum idle connections |
 | `DB_CONNECTION_MAX_LIFETIME` | `5m` | Maximum connection lifetime |
 
+### Authentication Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `JWT_SECRET` | - | **Required** Secret key for JWT signing (use strong random string) |
+| `JWT_ACCESS_TOKEN_TTL` | `1h` | Access token expiration time |
+| `JWT_REFRESH_TOKEN_TTL` | `720h` (30 days) | Refresh token expiration time |
+
 Example:
 
 ```bash
-PORT=3000 DATABASE_URL="postgres://user:pass@localhost:5432/telemetry?sslmode=disable" go run cmd/server/main.go
+# Generate a strong JWT secret
+JWT_SECRET=$(openssl rand -base64 32)
+
+# Run with authentication enabled
+PORT=3000 \
+DATABASE_URL="postgres://user:pass@localhost:5432/telemetry?sslmode=disable" \
+JWT_SECRET="your-secret-key-here" \
+JWT_ACCESS_TOKEN_TTL="1h" \
+JWT_REFRESH_TOKEN_TTL="720h" \
+go run cmd/server/main.go
 ```
 
 ## Running the Service
@@ -179,6 +198,350 @@ docker run -p 8080:8080 --env-file .env avt-service
 ```
 
 ## API Endpoints
+
+### Authentication
+
+The service supports JWT-based authentication for user management and device ownership.
+
+#### Register
+
+**Endpoint:** `POST /api/v1/auth/register`
+
+Create a new user account.
+
+**Request Body:**
+```json
+{
+  "email": "user@example.com",
+  "password": "securePassword123"
+}
+```
+
+**Response:** 201 Created
+```json
+{
+  "user": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "email": "user@example.com",
+    "emailVerified": false
+  },
+  "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "expiresAt": "2024-01-10T09:51:08Z"
+}
+```
+
+#### Login
+
+**Endpoint:** `POST /api/v1/auth/login`
+
+Authenticate and receive access/refresh tokens.
+
+**Request Body:**
+```json
+{
+  "email": "user@example.com",
+  "password": "securePassword123"
+}
+```
+
+**Response:** 200 OK
+```json
+{
+  "user": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "email": "user@example.com",
+    "emailVerified": false
+  },
+  "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "expiresAt": "2024-01-10T09:51:08Z"
+}
+```
+
+#### Refresh Token
+
+**Endpoint:** `POST /api/v1/auth/refresh`
+
+Get a new access token using a refresh token.
+
+**Request Body:**
+```json
+{
+  "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+
+**Response:** 200 OK
+```json
+{
+  "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "expiresAt": "2024-01-10T10:51:08Z"
+}
+```
+
+#### Logout
+
+**Endpoint:** `POST /api/v1/auth/logout`
+
+Revoke all refresh tokens for the authenticated user.
+
+**Headers:**
+```
+Authorization: Bearer <access_token>
+```
+
+**Response:** 200 OK
+```json
+{
+  "message": "Successfully logged out"
+}
+```
+
+#### Get User Profile
+
+**Endpoint:** `GET /api/v1/users/me`
+
+Get the authenticated user's profile.
+
+**Headers:**
+```
+Authorization: Bearer <access_token>
+```
+
+**Response:** 200 OK
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "email": "user@example.com",
+  "emailVerified": false,
+  "createdAt": "2024-01-01T00:00:00Z",
+  "profile": {
+    "displayName": "John Doe",
+    "timezone": "UTC",
+    "unitsPreference": "metric"
+  }
+}
+```
+
+#### Update User Profile
+
+**Endpoint:** `PATCH /api/v1/users/me`
+
+Update the authenticated user's profile.
+
+**Headers:**
+```
+Authorization: Bearer <access_token>
+```
+
+**Request Body:**
+```json
+{
+  "displayName": "John Doe",
+  "timezone": "America/New_York",
+  "unitsPreference": "imperial"
+}
+```
+
+**Response:** 200 OK
+
+#### Change Password
+
+**Endpoint:** `POST /api/v1/users/me/change-password`
+
+Change the authenticated user's password.
+
+**Headers:**
+```
+Authorization: Bearer <access_token>
+```
+
+**Request Body:**
+```json
+{
+  "currentPassword": "oldPassword123",
+  "newPassword": "newSecurePassword456"
+}
+```
+
+**Response:** 200 OK
+
+### Device Management
+
+#### List Devices
+
+**Endpoint:** `GET /api/v1/devices`
+
+List all devices owned by the authenticated user.
+
+**Headers:**
+```
+Authorization: Bearer <access_token>
+```
+
+**Response:** 200 OK
+```json
+{
+  "devices": [
+    {
+      "id": "660e8400-e29b-41d4-a716-446655440000",
+      "deviceId": "device-001",
+      "deviceName": "My Car",
+      "deviceModel": "Tesla Model 3",
+      "claimedAt": "2024-01-01T00:00:00Z",
+      "lastSeenAt": "2024-01-10T08:51:08Z",
+      "isActive": true
+    }
+  ]
+}
+```
+
+#### Get Device
+
+**Endpoint:** `GET /api/v1/devices/:id`
+
+Get details of a specific device.
+
+**Headers:**
+```
+Authorization: Bearer <access_token>
+```
+
+**Response:** 200 OK
+
+#### Update Device
+
+**Endpoint:** `PATCH /api/v1/devices/:id`
+
+Update device information.
+
+**Headers:**
+```
+Authorization: Bearer <access_token>
+```
+
+**Request Body:**
+```json
+{
+  "deviceName": "My Updated Car Name",
+  "metadata": {
+    "color": "red",
+    "year": 2023
+  }
+}
+```
+
+**Response:** 200 OK
+
+#### Deactivate Device
+
+**Endpoint:** `DELETE /api/v1/devices/:id`
+
+Deactivate a device (soft delete).
+
+**Headers:**
+```
+Authorization: Bearer <access_token>
+```
+
+**Response:** 200 OK
+
+### Error Responses
+
+All endpoints return consistent error responses:
+
+**400 Bad Request** - Invalid request data
+```json
+{
+  "error": "validation error",
+  "details": "email is required"
+}
+```
+
+**401 Unauthorized** - Missing or invalid authentication
+```json
+{
+  "error": "unauthorized",
+  "details": "invalid or expired token"
+}
+```
+
+**403 Forbidden** - Insufficient permissions
+```json
+{
+  "error": "forbidden",
+  "details": "you do not have permission to access this device"
+}
+```
+
+**404 Not Found** - Resource not found
+```json
+{
+  "error": "not found",
+  "details": "device not found"
+}
+```
+
+**409 Conflict** - Resource conflict
+```json
+{
+  "error": "conflict",
+  "details": "email already registered"
+}
+```
+
+**429 Too Many Requests** - Rate limit exceeded
+```json
+{
+  "error": "rate limit exceeded",
+  "details": "too many requests, please try again later"
+}
+```
+
+**500 Internal Server Error** - Server error
+```json
+{
+  "error": "internal server error",
+  "details": "an unexpected error occurred"
+}
+```
+
+### Token Format
+
+**Access Token:**
+- Type: JWT (JSON Web Token)
+- Algorithm: HS256
+- Expiration: 1 hour (configurable via `JWT_ACCESS_TOKEN_TTL`)
+- Claims:
+  - `sub`: User ID (UUID)
+  - `email`: User email
+  - `exp`: Expiration timestamp
+  - `iat`: Issued at timestamp
+
+**Refresh Token:**
+- Type: JWT (JSON Web Token)
+- Algorithm: HS256
+- Expiration: 30 days (configurable via `JWT_REFRESH_TOKEN_TTL`)
+- Claims:
+  - `sub`: User ID (UUID)
+  - `email`: User email
+  - `jti`: Unique token ID (for rotation)
+  - `exp`: Expiration timestamp
+  - `iat`: Issued at timestamp
+
+**Usage:**
+```bash
+# Include access token in Authorization header
+curl -H "Authorization: Bearer <access_token>" \
+  http://localhost:8080/api/v1/users/me
+```
+
+**Token Rotation:**
+- Refresh tokens are rotated on each use
+- Old refresh token is revoked when new one is issued
+- Each refresh token has a unique `jti` claim to prevent reuse
 
 ### API Versioning
 
