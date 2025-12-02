@@ -13,7 +13,10 @@ import (
 	mgin "github.com/ulule/limiter/v3/drivers/middleware/gin"
 	"github.com/ulule/limiter/v3/drivers/store/memory"
 
+	"github.com/sebasr/avt-service/internal/auth"
+	"github.com/sebasr/avt-service/internal/config"
 	"github.com/sebasr/avt-service/internal/handlers"
+	"github.com/sebasr/avt-service/internal/middleware"
 	"github.com/sebasr/avt-service/internal/repository"
 )
 
@@ -56,8 +59,17 @@ func NewRateLimitMiddleware() gin.HandlerFunc {
 	return middleware
 }
 
+// Dependencies holds all dependencies needed to create a server
+type Dependencies struct {
+	Config           *config.Config
+	TelemetryRepo    repository.TelemetryRepository
+	UserRepo         repository.UserRepository
+	RefreshTokenRepo repository.RefreshTokenRepository
+	DeviceRepo       repository.DeviceRepository
+}
+
 // New creates a new Gin router with all routes configured
-func New(repo repository.TelemetryRepository) *gin.Engine {
+func New(deps *Dependencies) *gin.Engine {
 	// Set Gin to release mode to disable ANSI colors in logs
 	gin.SetMode(gin.ReleaseMode)
 
@@ -81,8 +93,8 @@ func New(repo repository.TelemetryRepository) *gin.Engine {
 	// Add CORS middleware for web client support
 	router.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"*"},
-		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Content-Type", "Content-Encoding", "X-Request-ID", "X-Batch-ID"},
+		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Content-Type", "Content-Encoding", "Authorization", "X-Request-ID", "X-Batch-ID"},
 		ExposeHeaders:    []string{"Content-Length", "X-Request-ID"},
 		AllowCredentials: false,
 		MaxAge:           12 * time.Hour,
@@ -93,9 +105,22 @@ func New(repo repository.TelemetryRepository) *gin.Engine {
 	router.Use(NewRateLimitMiddleware())
 	router.Use(gzip.Gzip(gzip.DefaultCompression, gzip.WithDecompressFn(gzip.DefaultDecompressHandle)))
 
+	// Initialize JWT service
+	jwtService := auth.NewJWTService(
+		deps.Config.Auth.JWTSecret,
+		deps.Config.Auth.JWTAccessTokenTTL,
+		deps.Config.Auth.JWTRefreshTokenTTL,
+	)
+
+	// Initialize auth middleware
+	authMiddleware := middleware.NewAuthMiddleware(jwtService)
+	authRateLimiter := middleware.NewAuthRateLimitMiddleware()
+
 	// Initialize handlers
-	// Note: Device repository is nil for now - will be added in Phase 8 when auth is fully integrated
-	telemetryHandler := handlers.NewTelemetryHandler(repo, nil)
+	telemetryHandler := handlers.NewTelemetryHandler(deps.TelemetryRepo, deps.DeviceRepo)
+	authHandler := handlers.NewAuthHandler(deps.UserRepo, deps.RefreshTokenRepo, jwtService)
+	userHandler := handlers.NewUserHandler(deps.UserRepo)
+	deviceHandler := handlers.NewDeviceHandler(deps.DeviceRepo)
 
 	// API v1 routes
 	v1 := router.Group("/api/v1")
@@ -109,13 +134,43 @@ func New(repo repository.TelemetryRepository) *gin.Engine {
 			})
 		})
 
-		v1.POST("/telemetry", telemetryHandler.HandlePost)
-		v1.POST("/telemetry/batch", telemetryHandler.HandleBatchPost)
+		// Auth routes (with stricter rate limiting)
+		auth := v1.Group("/auth")
+		auth.Use(authRateLimiter)
+		{
+			auth.POST("/register", authHandler.Register)
+			auth.POST("/login", authHandler.Login)
+			auth.POST("/refresh", authHandler.RefreshToken)
+			auth.POST("/logout", authHandler.Logout)
+		}
+
+		// Telemetry routes (optional auth for backward compatibility)
+		v1.POST("/telemetry", authMiddleware.Optional(), telemetryHandler.HandlePost)
+		v1.POST("/telemetry/batch", authMiddleware.Optional(), telemetryHandler.HandleBatchPost)
+
+		// Protected user routes
+		users := v1.Group("/users")
+		users.Use(authMiddleware.Required())
+		{
+			users.GET("/me", userHandler.GetProfile)
+			users.PATCH("/me", userHandler.UpdateProfile)
+			users.POST("/me/change-password", userHandler.ChangePassword)
+		}
+
+		// Protected device routes
+		devices := v1.Group("/devices")
+		devices.Use(authMiddleware.Required())
+		{
+			devices.GET("", deviceHandler.ListDevices)
+			devices.GET("/:id", deviceHandler.GetDevice)
+			devices.PATCH("/:id", deviceHandler.UpdateDevice)
+			devices.DELETE("/:id", deviceHandler.DeactivateDevice)
+		}
 	}
 
-	// Legacy routes (for backward compatibility) - redirect to v1
-	router.POST("/api/telemetry", telemetryHandler.HandlePost)
-	router.POST("/api/telemetry/batch", telemetryHandler.HandleBatchPost)
+	// Legacy routes (for backward compatibility)
+	router.POST("/api/telemetry", authMiddleware.Optional(), telemetryHandler.HandlePost)
+	router.POST("/api/telemetry/batch", authMiddleware.Optional(), telemetryHandler.HandleBatchPost)
 
 	return router
 }

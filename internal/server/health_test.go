@@ -7,15 +7,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sebasr/avt-service/internal/repository"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestHealthEndpoint(t *testing.T) {
 	// Setup
-	mockRepo := repository.NewMockRepository()
-	router := New(mockRepo)
+	deps := newTestDeps()
+	router := New(deps)
 
 	t.Run("returns 200 OK", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
@@ -161,8 +160,8 @@ func TestHealthEndpoint(t *testing.T) {
 }
 
 func TestHealthEndpointNetworkQualityMeasurement(t *testing.T) {
-	mockRepo := repository.NewMockRepository()
-	router := New(mockRepo)
+	deps := newTestDeps()
+	router := New(deps)
 
 	t.Run("simulates network quality detection workflow", func(t *testing.T) {
 		// Simulate multiple pings to measure latency

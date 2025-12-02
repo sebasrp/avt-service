@@ -11,7 +11,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/sebasr/avt-service/internal/models"
-	"github.com/sebasr/avt-service/internal/repository"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -43,11 +42,9 @@ func TestGzipDecompression(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create mock repository
-			mockRepo := repository.NewMockRepository()
-
 			// Create router with gzip middleware
-			router := New(mockRepo)
+			deps := newTestDeps()
+			router := New(deps)
 
 			// Create test telemetry data
 			telemetry := models.TelemetryData{
@@ -164,11 +161,9 @@ func TestGzipBatchDecompression(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create mock repository
-			mockRepo := repository.NewMockRepository()
-
 			// Create router with gzip middleware
-			router := New(mockRepo)
+			deps := newTestDeps()
+			router := New(deps)
 
 			// Create batch of telemetry data
 			batch := make([]models.TelemetryData, tt.batchSize)
@@ -265,11 +260,9 @@ func TestGzipBatchDecompression(t *testing.T) {
 func TestGzipInvalidData(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	// Create mock repository
-	mockRepo := repository.NewMockRepository()
-
 	// Create router with gzip middleware
-	router := New(mockRepo)
+	deps := newTestDeps()
+	router := New(deps)
 
 	// Create invalid gzip data
 	invalidGzipData := []byte("this is not valid gzip data")

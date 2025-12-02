@@ -30,11 +30,23 @@ func main() {
 
 	log.Println("Successfully connected to database")
 
-	// Create repository
-	repo := repository.NewPostgresRepository(db)
+	// Create repositories
+	telemetryRepo := repository.NewPostgresRepository(db)
+	userRepo := repository.NewPostgresUserRepository(db)
+	refreshTokenRepo := repository.NewPostgresRefreshTokenRepository(db.DB)
+	deviceRepo := repository.NewPostgresDeviceRepository(db.DB)
+
+	// Create server dependencies
+	deps := &server.Dependencies{
+		Config:           cfg,
+		TelemetryRepo:    telemetryRepo,
+		UserRepo:         userRepo,
+		RefreshTokenRepo: refreshTokenRepo,
+		DeviceRepo:       deviceRepo,
+	}
 
 	// Create and start the server
-	srv := server.New(repo)
+	srv := server.New(deps)
 
 	log.Printf("Starting server on port %s", cfg.Server.Port)
 	if err := srv.Run(":" + cfg.Server.Port); err != nil {

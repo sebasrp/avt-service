@@ -12,11 +12,19 @@ import (
 type Config struct {
 	Server   ServerConfig
 	Database DatabaseConfig
+	Auth     AuthConfig
 }
 
 // ServerConfig holds server-related configuration
 type ServerConfig struct {
 	Port string
+}
+
+// AuthConfig holds authentication-related configuration
+type AuthConfig struct {
+	JWTSecret          string
+	JWTAccessTokenTTL  time.Duration
+	JWTRefreshTokenTTL time.Duration
 }
 
 // DatabaseConfig holds database-related configuration
@@ -50,6 +58,11 @@ func Load() (*Config, error) {
 			MaxConnections:        getEnvAsInt("DB_MAX_CONNECTIONS", 25),
 			MaxIdleConnections:    getEnvAsInt("DB_MAX_IDLE_CONNECTIONS", 5),
 			ConnectionMaxLifetime: getEnvAsDuration("DB_CONNECTION_MAX_LIFETIME", "5m"),
+		},
+		Auth: AuthConfig{
+			JWTSecret:          getEnv("JWT_SECRET", "dev-secret-key-change-in-production"),
+			JWTAccessTokenTTL:  getEnvAsDuration("JWT_ACCESS_TOKEN_TTL", "1h"),
+			JWTRefreshTokenTTL: getEnvAsDuration("JWT_REFRESH_TOKEN_TTL", "720h"), // 30 days
 		},
 	}
 

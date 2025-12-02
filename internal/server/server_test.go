@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/sebasr/avt-service/internal/config"
 	"github.com/sebasr/avt-service/internal/models"
 	"github.com/sebasr/avt-service/internal/repository"
 )
@@ -19,10 +20,28 @@ func init() {
 	gin.SetMode(gin.TestMode)
 }
 
+// newTestDeps creates test dependencies with mock repositories
+func newTestDeps() *Dependencies {
+	cfg := &config.Config{
+		Auth: config.AuthConfig{
+			JWTSecret:          "test-secret-key",
+			JWTAccessTokenTTL:  time.Hour,
+			JWTRefreshTokenTTL: 24 * time.Hour,
+		},
+	}
+
+	return &Dependencies{
+		Config:           cfg,
+		TelemetryRepo:    repository.NewMockRepository(),
+		UserRepo:         &repository.MockUserRepository{},
+		RefreshTokenRepo: &repository.MockRefreshTokenRepository{},
+		DeviceRepo:       &repository.MockDeviceRepository{},
+	}
+}
+
 func TestTelemetryEndpoint(t *testing.T) {
-	// Create a mock repository
-	mockRepo := repository.NewMockRepository()
-	router := New(mockRepo)
+	deps := newTestDeps()
+	router := New(deps)
 
 	// Create sample telemetry data
 	telemetry := models.TelemetryData{
@@ -92,9 +111,8 @@ func TestTelemetryEndpoint(t *testing.T) {
 }
 
 func TestNonExistentRoute(t *testing.T) {
-	// Create a mock repository
-	mockRepo := repository.NewMockRepository()
-	router := New(mockRepo)
+	deps := newTestDeps()
+	router := New(deps)
 
 	req, _ := http.NewRequest("GET", "/nonexistent", nil)
 	w := httptest.NewRecorder()
@@ -107,9 +125,8 @@ func TestNonExistentRoute(t *testing.T) {
 }
 
 func TestBatchTelemetryEndpoint(t *testing.T) {
-	// Create a mock repository
-	mockRepo := repository.NewMockRepository()
-	router := New(mockRepo)
+	deps := newTestDeps()
+	router := New(deps)
 
 	now := time.Now().UTC()
 
@@ -240,8 +257,8 @@ func TestBatchTelemetryEndpoint(t *testing.T) {
 }
 
 func TestBatchTelemetryEndpointValidation(t *testing.T) {
-	mockRepo := repository.NewMockRepository()
-	router := New(mockRepo)
+	deps := newTestDeps()
+	router := New(deps)
 
 	tests := []struct {
 		name           string
@@ -315,8 +332,8 @@ func TestBatchTelemetryEndpointValidation(t *testing.T) {
 }
 
 func TestBatchTelemetryEndpointLargePayload(t *testing.T) {
-	mockRepo := repository.NewMockRepository()
-	router := New(mockRepo)
+	deps := newTestDeps()
+	router := New(deps)
 
 	now := time.Now().UTC()
 
