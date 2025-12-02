@@ -122,7 +122,8 @@ func TestTelemetryHandler(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create mock repository
 			mockRepo := repository.NewMockRepository()
-			handler := NewTelemetryHandler(mockRepo)
+			mockDeviceRepo := &repository.MockDeviceRepository{}
+			handler := NewTelemetryHandler(mockRepo, mockDeviceRepo)
 
 			// Create test router
 			router := gin.New()
@@ -174,7 +175,8 @@ func TestTelemetryHandler(t *testing.T) {
 func TestTelemetryHandlerContentType(t *testing.T) {
 	// Create mock repository
 	mockRepo := repository.NewMockRepository()
-	handler := NewTelemetryHandler(mockRepo)
+	mockDeviceRepo := &repository.MockDeviceRepository{}
+	handler := NewTelemetryHandler(mockRepo, mockDeviceRepo)
 
 	router := gin.New()
 	router.POST("/api/telemetry", handler.HandlePost)
@@ -206,7 +208,8 @@ func TestTelemetryHandlerDatabaseError(t *testing.T) {
 		return errors.New("database connection failed")
 	}
 
-	handler := NewTelemetryHandler(mockRepo)
+	mockDeviceRepo := &repository.MockDeviceRepository{}
+	handler := NewTelemetryHandler(mockRepo, mockDeviceRepo)
 
 	router := gin.New()
 	router.POST("/api/telemetry", handler.HandlePost)
@@ -411,7 +414,8 @@ func TestTelemetryHandler_BatchPost(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create mock repository
 			mockRepo := repository.NewMockRepository()
-			handler := NewTelemetryHandler(mockRepo)
+			mockDeviceRepo := &repository.MockDeviceRepository{}
+			handler := NewTelemetryHandler(mockRepo, mockDeviceRepo)
 
 			// Create test router
 			router := gin.New()
@@ -474,7 +478,8 @@ func TestTelemetryHandler_BatchPostTooLarge(t *testing.T) {
 	}
 
 	mockRepo := repository.NewMockRepository()
-	handler := NewTelemetryHandler(mockRepo)
+	mockDeviceRepo := &repository.MockDeviceRepository{}
+	handler := NewTelemetryHandler(mockRepo, mockDeviceRepo)
 
 	router := gin.New()
 	router.POST("/api/telemetry/batch", handler.HandleBatchPost)
@@ -519,7 +524,8 @@ func TestTelemetryHandler_BatchPostDatabaseError(t *testing.T) {
 		return errors.New("database connection failed")
 	}
 
-	handler := NewTelemetryHandler(mockRepo)
+	mockDeviceRepo := &repository.MockDeviceRepository{}
+	handler := NewTelemetryHandler(mockRepo, mockDeviceRepo)
 
 	router := gin.New()
 	router.POST("/api/telemetry/batch", handler.HandleBatchPost)
@@ -559,7 +565,8 @@ func TestTelemetryHandler_BatchPostContentType(t *testing.T) {
 	}
 
 	mockRepo := repository.NewMockRepository()
-	handler := NewTelemetryHandler(mockRepo)
+	mockDeviceRepo := &repository.MockDeviceRepository{}
+	handler := NewTelemetryHandler(mockRepo, mockDeviceRepo)
 
 	router := gin.New()
 	router.POST("/api/telemetry/batch", handler.HandleBatchPost)
@@ -593,7 +600,8 @@ func TestTelemetryHandler_BatchPostWithSessionID(t *testing.T) {
 	}
 
 	mockRepo := repository.NewMockRepository()
-	handler := NewTelemetryHandler(mockRepo)
+	mockDeviceRepo := &repository.MockDeviceRepository{}
+	handler := NewTelemetryHandler(mockRepo, mockDeviceRepo)
 
 	router := gin.New()
 	router.POST("/api/telemetry/batch", handler.HandleBatchPost)

@@ -4,6 +4,8 @@ package models
 import (
 	"fmt"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // TelemetryData represents complete telemetry data from a RaceBox device
@@ -15,8 +17,9 @@ type TelemetryData struct {
 	Timestamp time.Time `json:"timestamp" db:"recorded_at"`
 
 	// Device and session identifiers
-	DeviceID  string  `json:"deviceId,omitempty" db:"device_id"`
-	SessionID *string `json:"sessionId,omitempty" db:"session_id"`
+	DeviceID  string     `json:"deviceId,omitempty" db:"device_id"`
+	SessionID *string    `json:"sessionId,omitempty" db:"session_id"`
+	UserID    *uuid.UUID `json:"userId,omitempty" db:"user_id"`
 
 	// GPS time of week in milliseconds
 	ITOW int64 `json:"iTOW" db:"itow"`

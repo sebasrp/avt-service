@@ -94,7 +94,8 @@ func New(repo repository.TelemetryRepository) *gin.Engine {
 	router.Use(gzip.Gzip(gzip.DefaultCompression, gzip.WithDecompressFn(gzip.DefaultDecompressHandle)))
 
 	// Initialize handlers
-	telemetryHandler := handlers.NewTelemetryHandler(repo)
+	// Note: Device repository is nil for now - will be added in Phase 8 when auth is fully integrated
+	telemetryHandler := handlers.NewTelemetryHandler(repo, nil)
 
 	// API v1 routes
 	v1 := router.Group("/api/v1")

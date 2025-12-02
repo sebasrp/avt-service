@@ -5,21 +5,28 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 
+	"github.com/sebasr/avt-service/internal/middleware"
 	"github.com/sebasr/avt-service/internal/models"
 	"github.com/sebasr/avt-service/internal/repository"
 )
 
 // TelemetryHandler handles telemetry-related HTTP requests
 type TelemetryHandler struct {
-	repo repository.TelemetryRepository
+	repo       repository.TelemetryRepository
+	deviceRepo repository.DeviceRepository
 }
 
 // NewTelemetryHandler creates a new telemetry handler with the given repository
-func NewTelemetryHandler(repo repository.TelemetryRepository) *TelemetryHandler {
-	return &TelemetryHandler{repo: repo}
+func NewTelemetryHandler(repo repository.TelemetryRepository, deviceRepo repository.DeviceRepository) *TelemetryHandler {
+	return &TelemetryHandler{
+		repo:       repo,
+		deviceRepo: deviceRepo,
+	}
 }
 
 // HandlePost handles incoming telemetry data from RaceBox devices
@@ -41,6 +48,19 @@ func (h *TelemetryHandler) HandlePost(c *gin.Context) {
 			"details": err.Error(),
 		})
 		return
+	}
+
+	// Extract user ID from context (if authenticated)
+	userID, err := middleware.GetUserID(c)
+	if err == nil && h.deviceRepo != nil {
+		// User is authenticated and device repo is available - handle device claiming and association
+		if err := h.handleDeviceClaiming(c, &telemetry, userID); err != nil {
+			log.Printf("Error handling device claiming: %v", err)
+			c.PureJSON(http.StatusInternalServerError, gin.H{
+				"error": "Failed to process device claiming",
+			})
+			return
+		}
 	}
 
 	// Save to database
@@ -102,6 +122,26 @@ func (h *TelemetryHandler) HandleBatchPost(c *gin.Context) {
 		}
 	}
 
+	// Extract user ID from context (if authenticated)
+	userID, err := middleware.GetUserID(c)
+	if err == nil && h.deviceRepo != nil {
+		// User is authenticated and device repo is available - handle device claiming for first record
+		if len(telemetryBatch) > 0 {
+			if err := h.handleDeviceClaiming(c, &telemetryBatch[0], userID); err != nil {
+				log.Printf("Error handling device claiming: %v", err)
+				c.PureJSON(http.StatusInternalServerError, gin.H{
+					"error": "Failed to process device claiming",
+				})
+				return
+			}
+
+			// Set user_id for all records in batch
+			for i := range telemetryBatch {
+				telemetryBatch[i].UserID = &userID
+			}
+		}
+	}
+
 	// Convert to pointers for SaveBatch
 	telemetryPointers := make([]*models.TelemetryData, len(telemetryBatch))
 	for i := range telemetryBatch {
@@ -135,6 +175,56 @@ func (h *TelemetryHandler) HandleBatchPost(c *gin.Context) {
 		"count":   len(telemetryBatch),
 		"ids":     savedIDs,
 	})
+}
+
+// handleDeviceClaiming handles device claiming and association with user
+func (h *TelemetryHandler) handleDeviceClaiming(c *gin.Context, telemetry *models.TelemetryData, userID uuid.UUID) error {
+	// Skip if no device ID in telemetry
+	if telemetry.DeviceID == "" {
+		// Set user_id even without device claiming
+		telemetry.UserID = &userID
+		return nil
+	}
+
+	deviceID := telemetry.DeviceID
+
+	// Check if device exists
+	device, err := h.deviceRepo.GetByDeviceID(c.Request.Context(), deviceID)
+	if err != nil {
+		// Device doesn't exist - create and claim it
+		now := time.Now()
+		device = &models.Device{
+			ID:         uuid.New(),
+			DeviceID:   deviceID,
+			UserID:     userID,
+			ClaimedAt:  now,
+			LastSeenAt: &now,
+			IsActive:   true,
+			CreatedAt:  now,
+			UpdatedAt:  now,
+		}
+
+		if err := h.deviceRepo.Create(c.Request.Context(), device); err != nil {
+			return fmt.Errorf("failed to create device: %w", err)
+		}
+
+		log.Printf("Device %s claimed by user %s", deviceID, userID)
+	} else {
+		// Device exists - verify ownership
+		if device.UserID != userID {
+			return fmt.Errorf("device %s is already claimed by another user", deviceID)
+		}
+
+		// Update last seen timestamp
+		if err := h.deviceRepo.UpdateLastSeen(c.Request.Context(), deviceID); err != nil {
+			log.Printf("Warning: failed to update last_seen for device %s: %v", deviceID, err)
+		}
+	}
+
+	// Set user_id on telemetry data
+	telemetry.UserID = &userID
+
+	return nil
 }
 
 // logTelemetry logs telemetry data in a structured format
