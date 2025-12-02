@@ -115,6 +115,21 @@ func runTestMigrations(db *database.DB) error {
 			ip_address INET
 		);`,
 
+		// Create devices table
+		`CREATE TABLE devices (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			device_id VARCHAR(50) UNIQUE NOT NULL,
+			user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			device_name VARCHAR(255),
+			device_model VARCHAR(100),
+			claimed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			last_seen_at TIMESTAMPTZ,
+			is_active BOOLEAN DEFAULT TRUE,
+			metadata JSONB,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		);`,
+
 		// Create telemetry table
 		`CREATE TABLE telemetry (
 			id BIGSERIAL,
