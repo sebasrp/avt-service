@@ -15,6 +15,7 @@ import (
 
 	"github.com/sebasr/avt-service/internal/auth"
 	"github.com/sebasr/avt-service/internal/config"
+	"github.com/sebasr/avt-service/internal/email"
 	"github.com/sebasr/avt-service/internal/handlers"
 	"github.com/sebasr/avt-service/internal/middleware"
 	"github.com/sebasr/avt-service/internal/repository"
@@ -66,6 +67,7 @@ type Dependencies struct {
 	UserRepo         repository.UserRepository
 	RefreshTokenRepo repository.RefreshTokenRepository
 	DeviceRepo       repository.DeviceRepository
+	EmailService     email.Service // Optional: nil if email not configured
 }
 
 // New creates a new Gin router with all routes configured
@@ -119,6 +121,15 @@ func New(deps *Dependencies) *gin.Engine {
 	// Initialize handlers
 	telemetryHandler := handlers.NewTelemetryHandler(deps.TelemetryRepo, deps.DeviceRepo)
 	authHandler := handlers.NewAuthHandler(deps.UserRepo, deps.RefreshTokenRepo, jwtService)
+
+	// Configure email service if available
+	if deps.EmailService != nil {
+		authHandler = authHandler.WithEmailService(deps.EmailService)
+		if deps.Config.Email.ResetTokenTTL > 0 {
+			authHandler = authHandler.WithResetTokenTTL(deps.Config.Email.ResetTokenTTL)
+		}
+	}
+
 	userHandler := handlers.NewUserHandler(deps.UserRepo)
 	deviceHandler := handlers.NewDeviceHandler(deps.DeviceRepo)
 
@@ -135,13 +146,15 @@ func New(deps *Dependencies) *gin.Engine {
 		})
 
 		// Auth routes (with stricter rate limiting)
-		auth := v1.Group("/auth")
-		auth.Use(authRateLimiter)
+		authGroup := v1.Group("/auth")
+		authGroup.Use(authRateLimiter)
 		{
-			auth.POST("/register", authHandler.Register)
-			auth.POST("/login", authHandler.Login)
-			auth.POST("/refresh", authHandler.RefreshToken)
-			auth.POST("/logout", authHandler.Logout)
+			authGroup.POST("/register", authHandler.Register)
+			authGroup.POST("/login", authHandler.Login)
+			authGroup.POST("/refresh", authHandler.RefreshToken)
+			authGroup.POST("/logout", authHandler.Logout)
+			authGroup.POST("/forgot-password", authHandler.ForgotPassword)
+			authGroup.POST("/reset-password", authHandler.ResetPassword)
 		}
 
 		// Telemetry routes (optional auth for backward compatibility)

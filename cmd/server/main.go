@@ -6,6 +6,7 @@ import (
 
 	"github.com/sebasr/avt-service/internal/config"
 	"github.com/sebasr/avt-service/internal/database"
+	"github.com/sebasr/avt-service/internal/email"
 	"github.com/sebasr/avt-service/internal/repository"
 	"github.com/sebasr/avt-service/internal/server"
 )
@@ -36,6 +37,21 @@ func main() {
 	refreshTokenRepo := repository.NewPostgresRefreshTokenRepository(db.DB)
 	deviceRepo := repository.NewPostgresDeviceRepository(db.DB)
 
+	// Initialize email service if configured
+	var emailService email.Service
+	if cfg.Email.Provider == "mailgun" && cfg.Email.MailgunAPIKey != "" {
+		emailService = email.NewMailgunService(
+			cfg.Email.MailgunDomain,
+			cfg.Email.MailgunAPIKey,
+			cfg.Email.FromAddress,
+			cfg.Email.FromName,
+			cfg.Email.AppURL,
+		)
+		log.Println("Email service initialized with Mailgun provider")
+	} else {
+		log.Println("Email service not configured - password reset emails will be disabled")
+	}
+
 	// Create server dependencies
 	deps := &server.Dependencies{
 		Config:           cfg,
@@ -43,6 +59,7 @@ func main() {
 		UserRepo:         userRepo,
 		RefreshTokenRepo: refreshTokenRepo,
 		DeviceRepo:       deviceRepo,
+		EmailService:     emailService,
 	}
 
 	// Create and start the server
