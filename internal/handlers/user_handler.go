@@ -1,17 +1,21 @@
 package handlers
 
 import (
+	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/sebasr/avt-service/internal/auth"
+	"github.com/sebasr/avt-service/internal/email"
 	"github.com/sebasr/avt-service/internal/middleware"
 	"github.com/sebasr/avt-service/internal/repository"
 )
 
 // UserHandler handles user-related requests
 type UserHandler struct {
-	userRepo repository.UserRepository
+	userRepo         repository.UserRepository
+	refreshTokenRepo repository.RefreshTokenRepository
+	emailService     email.Service
 }
 
 // NewUserHandler creates a new user handler
@@ -19,6 +23,18 @@ func NewUserHandler(userRepo repository.UserRepository) *UserHandler {
 	return &UserHandler{
 		userRepo: userRepo,
 	}
+}
+
+// WithRefreshTokenRepo sets the refresh token repository for session invalidation
+func (h *UserHandler) WithRefreshTokenRepo(repo repository.RefreshTokenRepository) *UserHandler {
+	h.refreshTokenRepo = repo
+	return h
+}
+
+// WithEmailService sets the email service for sending notifications
+func (h *UserHandler) WithEmailService(emailService email.Service) *UserHandler {
+	h.emailService = emailService
+	return h
 }
 
 // UpdateProfileRequest represents the profile update request body
@@ -202,6 +218,22 @@ func (h *UserHandler) ChangePassword(c *gin.Context) {
 			"message": "Failed to update password",
 		})
 		return
+	}
+
+	// Revoke all refresh tokens for security (invalidate other sessions)
+	if h.refreshTokenRepo != nil {
+		if err := h.refreshTokenRepo.RevokeAllForUser(c.Request.Context(), userID); err != nil {
+			log.Printf("Error revoking refresh tokens after password change: %v", err)
+			// Non-critical, continue
+		}
+	}
+
+	// Send password changed notification email
+	if h.emailService != nil {
+		if err := h.emailService.SendPasswordChangedEmail(c.Request.Context(), user.Email); err != nil {
+			log.Printf("Error sending password changed email: %v", err)
+			// Non-critical, continue
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{

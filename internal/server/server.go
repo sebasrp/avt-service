@@ -130,7 +130,14 @@ func New(deps *Dependencies) *gin.Engine {
 		}
 	}
 
-	userHandler := handlers.NewUserHandler(deps.UserRepo)
+	userHandler := handlers.NewUserHandler(deps.UserRepo).
+		WithRefreshTokenRepo(deps.RefreshTokenRepo)
+
+	// Configure email service for user handler if available
+	if deps.EmailService != nil {
+		userHandler = userHandler.WithEmailService(deps.EmailService)
+	}
+
 	deviceHandler := handlers.NewDeviceHandler(deps.DeviceRepo)
 
 	// API v1 routes
