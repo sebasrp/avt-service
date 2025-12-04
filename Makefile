@@ -69,10 +69,15 @@ build: fmt lint test-unit
 	@go build -o bin/server cmd/server/main.go
 	@echo "✓ Build complete: bin/server"
 
-## run: Run the application
+## run: Run the application (loads .env.local if present)
 run:
 	@echo "Starting server..."
-	@go run cmd/server/main.go
+	@if [ -f .env.local ]; then \
+		echo "Loading environment from .env.local..."; \
+		set -a && . ./.env.local && set +a && go run cmd/server/main.go; \
+	else \
+		go run cmd/server/main.go; \
+	fi
 
 ## clean: Remove build artifacts and temporary files
 clean:
