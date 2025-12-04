@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/sebasr/avt-service/internal/auth"
+	"github.com/sebasr/avt-service/internal/email"
 	"github.com/sebasr/avt-service/internal/middleware"
 	"github.com/sebasr/avt-service/internal/models"
 	"github.com/sebasr/avt-service/internal/repository"
@@ -446,4 +447,401 @@ func TestAuthHandler_Logout_Unauthorized(t *testing.T) {
 
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 	assert.Contains(t, w.Body.String(), "unauthorized")
+}
+
+func TestAuthHandler_ForgotPassword_Success(t *testing.T) {
+	handler, userRepo, _, _ := setupAuthTest()
+
+	// Configure mock email service
+	mockEmailService := email.NewMockService()
+	handler = handler.WithEmailService(mockEmailService)
+
+	user := &models.User{
+		ID:       uuid.New(),
+		Email:    "test@example.com",
+		IsActive: true,
+	}
+
+	userRepo.GetByEmailFunc = func(_ context.Context, emailAddr string) (*models.User, error) {
+		if emailAddr == "test@example.com" {
+			return user, nil
+		}
+		return nil, repository.ErrUserNotFound
+	}
+
+	var setResetTokenCalled bool
+	userRepo.SetResetTokenFunc = func(_ context.Context, id uuid.UUID, token string, expiresAt *time.Time) error {
+		setResetTokenCalled = true
+		assert.Equal(t, user.ID, id)
+		assert.NotEmpty(t, token)
+		assert.NotNil(t, expiresAt)
+		assert.True(t, expiresAt.After(time.Now()))
+		return nil
+	}
+
+	reqBody := ForgotPasswordRequest{
+		Email: "test@example.com",
+	}
+
+	body, _ := json.Marshal(reqBody)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/auth/forgot-password", bytes.NewBuffer(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.ForgotPassword(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), "If an account with that email exists")
+	assert.True(t, setResetTokenCalled)
+
+	// Verify email was sent
+	emails := mockEmailService.GetPasswordResetEmails()
+	assert.Len(t, emails, 1)
+	assert.Equal(t, "test@example.com", emails[0].To)
+}
+
+func TestAuthHandler_ForgotPassword_UserNotFound(t *testing.T) {
+	handler, userRepo, _, _ := setupAuthTest()
+
+	userRepo.GetByEmailFunc = func(_ context.Context, _ string) (*models.User, error) {
+		return nil, repository.ErrUserNotFound
+	}
+
+	// ForgotPassword should still return success to prevent email enumeration
+	reqBody := ForgotPasswordRequest{
+		Email: "nonexistent@example.com",
+	}
+
+	body, _ := json.Marshal(reqBody)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/auth/forgot-password", bytes.NewBuffer(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.ForgotPassword(c)
+
+	// Should return success anyway (prevents email enumeration)
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), "If an account with that email exists")
+}
+
+func TestAuthHandler_ForgotPassword_InactiveUser(t *testing.T) {
+	handler, userRepo, _, _ := setupAuthTest()
+
+	user := &models.User{
+		ID:       uuid.New(),
+		Email:    "inactive@example.com",
+		IsActive: false,
+	}
+
+	userRepo.GetByEmailFunc = func(_ context.Context, _ string) (*models.User, error) {
+		return user, nil
+	}
+
+	var setResetTokenCalled bool
+	userRepo.SetResetTokenFunc = func(_ context.Context, _ uuid.UUID, _ string, _ *time.Time) error {
+		setResetTokenCalled = true
+		return nil
+	}
+
+	reqBody := ForgotPasswordRequest{
+		Email: "inactive@example.com",
+	}
+
+	body, _ := json.Marshal(reqBody)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/auth/forgot-password", bytes.NewBuffer(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.ForgotPassword(c)
+
+	// Should return success but NOT call SetResetToken for inactive users
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.False(t, setResetTokenCalled)
+}
+
+func TestAuthHandler_ForgotPassword_InvalidRequest(t *testing.T) {
+	handler, _, _, _ := setupAuthTest()
+
+	tests := []struct {
+		name    string
+		body    interface{}
+		wantErr string
+	}{
+		{
+			name:    "missing email",
+			body:    map[string]string{},
+			wantErr: "invalid_request",
+		},
+		{
+			name:    "invalid email format",
+			body:    map[string]string{"email": "not-an-email"},
+			wantErr: "invalid_request",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body, _ := json.Marshal(tt.body)
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/auth/forgot-password", bytes.NewBuffer(body))
+			c.Request.Header.Set("Content-Type", "application/json")
+
+			handler.ForgotPassword(c)
+
+			assert.Equal(t, http.StatusBadRequest, w.Code)
+			assert.Contains(t, w.Body.String(), tt.wantErr)
+		})
+	}
+}
+
+func TestAuthHandler_ResetPassword_Success(t *testing.T) {
+	handler, userRepo, refreshTokenRepo, _ := setupAuthTest()
+
+	userID := uuid.New()
+	resetToken := "test-reset-token"
+	hashedToken := auth.HashToken(resetToken)
+	expiresAt := time.Now().Add(1 * time.Hour)
+
+	user := &models.User{
+		ID:                  userID,
+		Email:               "test@example.com",
+		PasswordHash:        "old-hash",
+		ResetToken:          &hashedToken,
+		ResetTokenExpiresAt: &expiresAt,
+		IsActive:            true,
+	}
+
+	userRepo.GetByResetTokenFunc = func(_ context.Context, token string) (*models.User, error) {
+		if token == hashedToken {
+			return user, nil
+		}
+		return nil, repository.ErrUserNotFound
+	}
+
+	var newPasswordHash string
+	userRepo.UpdatePasswordFunc = func(_ context.Context, id uuid.UUID, hash string) error {
+		assert.Equal(t, userID, id)
+		newPasswordHash = hash
+		return nil
+	}
+
+	var clearResetTokenCalled bool
+	userRepo.ClearResetTokenFunc = func(_ context.Context, id uuid.UUID) error {
+		clearResetTokenCalled = true
+		assert.Equal(t, userID, id)
+		return nil
+	}
+
+	var revokeAllCalled bool
+	refreshTokenRepo.RevokeAllForUserFunc = func(_ context.Context, id uuid.UUID) error {
+		revokeAllCalled = true
+		assert.Equal(t, userID, id)
+		return nil
+	}
+
+	reqBody := ResetPasswordRequest{
+		Token:       resetToken,
+		NewPassword: "newpassword123",
+	}
+
+	body, _ := json.Marshal(reqBody)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/auth/reset-password", bytes.NewBuffer(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.ResetPassword(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), "Password has been reset successfully")
+	assert.NotEmpty(t, newPasswordHash)
+	assert.True(t, clearResetTokenCalled)
+	assert.True(t, revokeAllCalled)
+}
+
+func TestAuthHandler_ResetPassword_InvalidToken(t *testing.T) {
+	handler, userRepo, _, _ := setupAuthTest()
+
+	userRepo.GetByResetTokenFunc = func(_ context.Context, _ string) (*models.User, error) {
+		return nil, repository.ErrUserNotFound
+	}
+
+	reqBody := ResetPasswordRequest{
+		Token:       "invalid-token",
+		NewPassword: "newpassword123",
+	}
+
+	body, _ := json.Marshal(reqBody)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/auth/reset-password", bytes.NewBuffer(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.ResetPassword(c)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "invalid_token")
+}
+
+func TestAuthHandler_ResetPassword_ExpiredToken(t *testing.T) {
+	handler, userRepo, _, _ := setupAuthTest()
+
+	userID := uuid.New()
+	hashedToken := auth.HashToken("expired-token")
+	// Token expired 1 hour ago
+	expiresAt := time.Now().Add(-1 * time.Hour)
+
+	user := &models.User{
+		ID:                  userID,
+		Email:               "test@example.com",
+		ResetToken:          &hashedToken,
+		ResetTokenExpiresAt: &expiresAt,
+		IsActive:            true,
+	}
+
+	userRepo.GetByResetTokenFunc = func(_ context.Context, token string) (*models.User, error) {
+		if token == hashedToken {
+			return user, nil
+		}
+		return nil, repository.ErrUserNotFound
+	}
+
+	reqBody := ResetPasswordRequest{
+		Token:       "expired-token",
+		NewPassword: "newpassword123",
+	}
+
+	body, _ := json.Marshal(reqBody)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/auth/reset-password", bytes.NewBuffer(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.ResetPassword(c)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "expired_token")
+}
+
+func TestAuthHandler_ResetPassword_InactiveUser(t *testing.T) {
+	handler, userRepo, _, _ := setupAuthTest()
+
+	userID := uuid.New()
+	hashedToken := auth.HashToken("valid-token")
+	expiresAt := time.Now().Add(1 * time.Hour)
+
+	user := &models.User{
+		ID:                  userID,
+		Email:               "inactive@example.com",
+		ResetToken:          &hashedToken,
+		ResetTokenExpiresAt: &expiresAt,
+		IsActive:            false, // Inactive user
+	}
+
+	userRepo.GetByResetTokenFunc = func(_ context.Context, token string) (*models.User, error) {
+		if token == hashedToken {
+			return user, nil
+		}
+		return nil, repository.ErrUserNotFound
+	}
+
+	reqBody := ResetPasswordRequest{
+		Token:       "valid-token",
+		NewPassword: "newpassword123",
+	}
+
+	body, _ := json.Marshal(reqBody)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/auth/reset-password", bytes.NewBuffer(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.ResetPassword(c)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	assert.Contains(t, w.Body.String(), "account_disabled")
+}
+
+func TestAuthHandler_ResetPassword_InvalidRequest(t *testing.T) {
+	handler, _, _, _ := setupAuthTest()
+
+	tests := []struct {
+		name    string
+		body    interface{}
+		wantErr string
+	}{
+		{
+			name:    "missing token",
+			body:    map[string]string{"newPassword": "newpassword123"},
+			wantErr: "invalid_request",
+		},
+		{
+			name:    "missing password",
+			body:    map[string]string{"token": "some-token"},
+			wantErr: "invalid_request",
+		},
+		{
+			name:    "password too short",
+			body:    map[string]string{"token": "some-token", "newPassword": "short"},
+			wantErr: "invalid_request",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body, _ := json.Marshal(tt.body)
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/auth/reset-password", bytes.NewBuffer(body))
+			c.Request.Header.Set("Content-Type", "application/json")
+
+			handler.ResetPassword(c)
+
+			assert.Equal(t, http.StatusBadRequest, w.Code)
+			assert.Contains(t, w.Body.String(), tt.wantErr)
+		})
+	}
+}
+
+func TestAuthHandler_ResetPassword_NilExpiresAt(t *testing.T) {
+	handler, userRepo, _, _ := setupAuthTest()
+
+	userID := uuid.New()
+	hashedToken := auth.HashToken("token-with-nil-expiry")
+
+	user := &models.User{
+		ID:                  userID,
+		Email:               "test@example.com",
+		ResetToken:          &hashedToken,
+		ResetTokenExpiresAt: nil, // No expiry set
+		IsActive:            true,
+	}
+
+	userRepo.GetByResetTokenFunc = func(_ context.Context, token string) (*models.User, error) {
+		if token == hashedToken {
+			return user, nil
+		}
+		return nil, repository.ErrUserNotFound
+	}
+
+	reqBody := ResetPasswordRequest{
+		Token:       "token-with-nil-expiry",
+		NewPassword: "newpassword123",
+	}
+
+	body, _ := json.Marshal(reqBody)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/auth/reset-password", bytes.NewBuffer(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.ResetPassword(c)
+
+	// Should be treated as expired since there's no valid expiry
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "expired_token")
 }
