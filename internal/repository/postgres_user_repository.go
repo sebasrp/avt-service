@@ -330,6 +330,84 @@ func (r *PostgresUserRepository) SetResetToken(ctx context.Context, id uuid.UUID
 	return nil
 }
 
+// GetByResetToken retrieves a user by their password reset token
+func (r *PostgresUserRepository) GetByResetToken(ctx context.Context, token string) (*models.User, error) {
+	query := `
+		SELECT
+			id, email, password_hash, email_verified,
+			verification_token, verification_token_expires_at,
+			reset_token, reset_token_expires_at,
+			created_at, updated_at, last_login_at, is_active
+		FROM users
+		WHERE reset_token = $1
+	`
+
+	user := &models.User{}
+	var verificationToken, resetToken sql.NullString
+	var verificationTokenExpiresAt, resetTokenExpiresAt, lastLoginAt sql.NullTime
+
+	err := r.db.QueryRowContext(ctx, query, token).Scan(
+		&user.ID, &user.Email, &user.PasswordHash, &user.EmailVerified,
+		&verificationToken, &verificationTokenExpiresAt,
+		&resetToken, &resetTokenExpiresAt,
+		&user.CreatedAt, &user.UpdatedAt, &lastLoginAt, &user.IsActive,
+	)
+
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrUserNotFound
+		}
+		return nil, fmt.Errorf("failed to get user by reset token: %w", err)
+	}
+
+	// Handle nullable fields
+	if verificationToken.Valid {
+		user.VerificationToken = &verificationToken.String
+	}
+	if verificationTokenExpiresAt.Valid {
+		user.VerificationTokenExpiresAt = &verificationTokenExpiresAt.Time
+	}
+	if resetToken.Valid {
+		user.ResetToken = &resetToken.String
+	}
+	if resetTokenExpiresAt.Valid {
+		user.ResetTokenExpiresAt = &resetTokenExpiresAt.Time
+	}
+	if lastLoginAt.Valid {
+		user.LastLoginAt = &lastLoginAt.Time
+	}
+
+	return user, nil
+}
+
+// ClearResetToken clears the password reset token and expiry
+func (r *PostgresUserRepository) ClearResetToken(ctx context.Context, id uuid.UUID) error {
+	query := `
+		UPDATE users
+		SET
+			reset_token = NULL,
+			reset_token_expires_at = NULL,
+			updated_at = $2
+		WHERE id = $1
+	`
+
+	result, err := r.db.ExecContext(ctx, query, id, time.Now())
+	if err != nil {
+		return fmt.Errorf("failed to clear reset token: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return ErrUserNotFound
+	}
+
+	return nil
+}
+
 // UpdateLastLogin updates the user's last login timestamp
 func (r *PostgresUserRepository) UpdateLastLogin(ctx context.Context, id uuid.UUID) error {
 	query := `

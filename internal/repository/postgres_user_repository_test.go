@@ -360,3 +360,108 @@ func TestPostgresUserRepository_UpdateLastLogin(t *testing.T) {
 	require.NotNil(t, retrieved.LastLoginAt)
 	assert.True(t, retrieved.LastLoginAt.After(beforeUpdate) || retrieved.LastLoginAt.Equal(beforeUpdate))
 }
+
+func TestPostgresUserRepository_GetByResetToken(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	repo := NewPostgresUserRepository(db)
+	ctx := context.Background()
+
+	// Create a user with reset token
+	token := "reset_token_12345"
+	expiresAt := time.Now().Add(1 * time.Hour)
+	user := &models.User{
+		Email:               "resetbytoken@example.com",
+		PasswordHash:        "hash",
+		ResetToken:          &token,
+		ResetTokenExpiresAt: &expiresAt,
+		IsActive:            true,
+	}
+	err := repo.Create(ctx, user)
+	require.NoError(t, err)
+
+	// Get user by reset token
+	retrieved, err := repo.GetByResetToken(ctx, token)
+	require.NoError(t, err)
+	assert.Equal(t, user.ID, retrieved.ID)
+	assert.Equal(t, user.Email, retrieved.Email)
+	require.NotNil(t, retrieved.ResetToken)
+	assert.Equal(t, token, *retrieved.ResetToken)
+}
+
+func TestPostgresUserRepository_GetByResetToken_NotFound(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	repo := NewPostgresUserRepository(db)
+	ctx := context.Background()
+
+	_, err := repo.GetByResetToken(ctx, "nonexistent_token")
+	assert.ErrorIs(t, err, ErrUserNotFound)
+}
+
+func TestPostgresUserRepository_ClearResetToken(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	repo := NewPostgresUserRepository(db)
+	ctx := context.Background()
+
+	// Create a user with reset token
+	token := "reset_token_to_clear"
+	expiresAt := time.Now().Add(1 * time.Hour)
+	user := &models.User{
+		Email:               "clearreset@example.com",
+		PasswordHash:        "hash",
+		ResetToken:          &token,
+		ResetTokenExpiresAt: &expiresAt,
+		IsActive:            true,
+	}
+	err := repo.Create(ctx, user)
+	require.NoError(t, err)
+
+	// Verify token is set
+	retrieved, err := repo.GetByID(ctx, user.ID)
+	require.NoError(t, err)
+	require.NotNil(t, retrieved.ResetToken)
+	require.NotNil(t, retrieved.ResetTokenExpiresAt)
+
+	// Clear the reset token
+	err = repo.ClearResetToken(ctx, user.ID)
+	require.NoError(t, err)
+
+	// Verify token was cleared
+	retrieved, err = repo.GetByID(ctx, user.ID)
+	require.NoError(t, err)
+	assert.Nil(t, retrieved.ResetToken)
+	assert.Nil(t, retrieved.ResetTokenExpiresAt)
+}
+
+func TestPostgresUserRepository_ClearResetToken_NotFound(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	repo := NewPostgresUserRepository(db)
+	ctx := context.Background()
+
+	nonExistentID := uuid.New()
+	err := repo.ClearResetToken(ctx, nonExistentID)
+	assert.ErrorIs(t, err, ErrUserNotFound)
+}

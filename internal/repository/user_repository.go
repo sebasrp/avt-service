@@ -34,6 +34,12 @@ type UserRepository interface {
 	// SetResetToken sets the password reset token and expiry
 	SetResetToken(ctx context.Context, id uuid.UUID, token string, expiresAt *time.Time) error
 
+	// GetByResetToken retrieves a user by their password reset token
+	GetByResetToken(ctx context.Context, token string) (*models.User, error)
+
+	// ClearResetToken clears the password reset token and expiry
+	ClearResetToken(ctx context.Context, id uuid.UUID) error
+
 	// UpdateLastLogin updates the user's last login timestamp
 	UpdateLastLogin(ctx context.Context, id uuid.UUID) error
 }

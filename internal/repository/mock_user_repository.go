@@ -18,6 +18,8 @@ type MockUserRepository struct {
 	UpdateEmailVerificationFunc func(ctx context.Context, id uuid.UUID, verified bool) error
 	SetVerificationTokenFunc    func(ctx context.Context, id uuid.UUID, token string, expiresAt *time.Time) error
 	SetResetTokenFunc           func(ctx context.Context, id uuid.UUID, token string, expiresAt *time.Time) error
+	GetByResetTokenFunc         func(ctx context.Context, token string) (*models.User, error)
+	ClearResetTokenFunc         func(ctx context.Context, id uuid.UUID) error
 	UpdateLastLoginFunc         func(ctx context.Context, id uuid.UUID) error
 }
 
@@ -46,6 +48,12 @@ func NewMockUserRepository() *MockUserRepository {
 			return nil
 		},
 		SetResetTokenFunc: func(_ context.Context, _ uuid.UUID, _ string, _ *time.Time) error {
+			return nil
+		},
+		GetByResetTokenFunc: func(_ context.Context, _ string) (*models.User, error) {
+			return nil, ErrUserNotFound
+		},
+		ClearResetTokenFunc: func(_ context.Context, _ uuid.UUID) error {
 			return nil
 		},
 		UpdateLastLoginFunc: func(_ context.Context, _ uuid.UUID) error {
@@ -92,6 +100,16 @@ func (m *MockUserRepository) SetVerificationToken(ctx context.Context, id uuid.U
 // SetResetToken implements UserRepository.SetResetToken
 func (m *MockUserRepository) SetResetToken(ctx context.Context, id uuid.UUID, token string, expiresAt *time.Time) error {
 	return m.SetResetTokenFunc(ctx, id, token, expiresAt)
+}
+
+// GetByResetToken implements UserRepository.GetByResetToken
+func (m *MockUserRepository) GetByResetToken(ctx context.Context, token string) (*models.User, error) {
+	return m.GetByResetTokenFunc(ctx, token)
+}
+
+// ClearResetToken implements UserRepository.ClearResetToken
+func (m *MockUserRepository) ClearResetToken(ctx context.Context, id uuid.UUID) error {
+	return m.ClearResetTokenFunc(ctx, id)
 }
 
 // UpdateLastLogin implements UserRepository.UpdateLastLogin
