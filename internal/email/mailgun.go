@@ -43,8 +43,7 @@ func NewMailgunService(domain, apiKey, fromAddress, fromName, appURL string) *Ma
 
 	// Check if EU region should be used (set via MAILGUN_EU=true)
 	if os.Getenv("MAILGUN_EU") == "true" {
-		mg.SetAPIBase("https://api.eu.mailgun.net/v3")
-		fmt.Println("DEBUG: Using Mailgun EU region")
+		_ = mg.SetAPIBase("https://api.eu.mailgun.net/v3")
 	}
 	return &MailgunService{
 		client:      mg,
