@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/mailgun/mailgun-go/v5"
@@ -12,6 +13,7 @@ import (
 // MailgunService implements the Service interface using Mailgun's API.
 type MailgunService struct {
 	client      mailgun.Mailgun
+	domain      string
 	fromAddress string
 	fromName    string
 	appURL      string
@@ -24,15 +26,29 @@ type MailgunService struct {
 // fromName: Sender display name (e.g., "AVT Service")
 // appURL: Frontend application URL for reset links (e.g., "https://app.example.com")
 func NewMailgunService(domain, apiKey, fromAddress, fromName, appURL string) *MailgunService {
+	// Trim whitespace from inputs (important when loaded from env files)
+	domain = strings.TrimSpace(domain)
+	apiKey = strings.TrimSpace(apiKey)
+	fromAddress = strings.TrimSpace(fromAddress)
+	fromName = strings.TrimSpace(fromName)
+	appURL = strings.TrimSpace(appURL)
+
 	// Mailgun v5 expects API key via environment variable MAILGUN_API_KEY
-	// Temporarily set it if provided via parameter
+	// Set it if provided via parameter
 	if apiKey != "" {
 		os.Setenv("MAILGUN_API_KEY", apiKey)
 	}
 
 	mg := mailgun.NewMailgun(domain)
+
+	// Check if EU region should be used (set via MAILGUN_EU=true)
+	if os.Getenv("MAILGUN_EU") == "true" {
+		mg.SetAPIBase("https://api.eu.mailgun.net/v3")
+		fmt.Println("DEBUG: Using Mailgun EU region")
+	}
 	return &MailgunService{
 		client:      mg,
+		domain:      domain,
 		fromAddress: fromAddress,
 		fromName:    fromName,
 		appURL:      appURL,
@@ -80,7 +96,7 @@ If you didn't request this, you can safely ignore this email.
 This is an automated message, please do not reply.`, resetLink)
 
 	sender := fmt.Sprintf("%s <%s>", s.fromName, s.fromAddress)
-	message := mailgun.NewMessage(sender, subject, textBody, to)
+	message := mailgun.NewMessage(s.domain, sender, subject, textBody, to)
 	message.SetHTML(htmlBody)
 
 	// Set timeout for the request
@@ -129,7 +145,7 @@ For your security, all active sessions have been logged out. You'll need to log 
 This is an automated message, please do not reply.`
 
 	sender := fmt.Sprintf("%s <%s>", s.fromName, s.fromAddress)
-	message := mailgun.NewMessage(sender, subject, textBody, to)
+	message := mailgun.NewMessage(s.domain, sender, subject, textBody, to)
 	message.SetHTML(htmlBody)
 
 	// Set timeout for the request
