@@ -33,17 +33,13 @@ func NewMailgunService(domain, apiKey, fromAddress, fromName, appURL string) *Ma
 	fromName = strings.TrimSpace(fromName)
 	appURL = strings.TrimSpace(appURL)
 
-	// Mailgun v5 expects API key via environment variable MAILGUN_API_KEY
-	// Set it if provided via parameter
-	if apiKey != "" {
-		os.Setenv("MAILGUN_API_KEY", apiKey)
-	}
-
-	mg := mailgun.NewMailgun(domain)
+	// Mailgun v5 NewMailgun takes the API key as the parameter
+	mg := mailgun.NewMailgun(apiKey)
 
 	// Check if EU region should be used (set via MAILGUN_EU=true)
 	if os.Getenv("MAILGUN_EU") == "true" {
-		_ = mg.SetAPIBase("https://api.eu.mailgun.net/v3")
+		// Note: Mailgun v5 doesn't want the /v3 suffix - it adds it automatically
+		_ = mg.SetAPIBase("https://api.eu.mailgun.net")
 	}
 	return &MailgunService{
 		client:      mg,
