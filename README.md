@@ -134,6 +134,7 @@ The service is configured via environment variables:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PORT` | `8080` | HTTP server port |
+| `DEV_MODE` | `false` | Enable development features (password reset UI at `/reset-password`) |
 | `DATABASE_URL` | - | Full PostgreSQL connection string |
 | `DB_HOST` | `localhost` | Database host |
 | `DB_PORT` | `5432` | Database port |
@@ -152,6 +153,24 @@ The service is configured via environment variables:
 | `JWT_SECRET` | - | **Required** Secret key for JWT signing (use strong random string) |
 | `JWT_ACCESS_TOKEN_TTL` | `1h` | Access token expiration time |
 | `JWT_REFRESH_TOKEN_TTL` | `720h` (30 days) | Refresh token expiration time |
+
+### Email Configuration
+
+Email is required for password reset functionality. The service supports multiple providers:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `EMAIL_PROVIDER` | - | Email provider: `mailgun`, `console`, or empty (disabled) |
+| `EMAIL_FROM_ADDRESS` | - | Sender email address (e.g., `noreply@example.com`) |
+| `EMAIL_FROM_NAME` | `AVT Service` | Sender display name |
+| `APP_URL` | `http://localhost:3000` | Base URL for password reset links |
+| `MAILGUN_DOMAIN` | - | Mailgun domain (required if using Mailgun) |
+| `MAILGUN_API_KEY` | - | Mailgun API key (required if using Mailgun) |
+
+**Provider Options:**
+- `mailgun` - Production email via Mailgun API
+- `console` - Development mode, logs emails to stdout (no actual emails sent)
+- Empty/unset - Email disabled (password reset returns success but no email sent)
 
 Example:
 
@@ -299,6 +318,55 @@ Authorization: Bearer <access_token>
 }
 ```
 
+#### Forgot Password
+
+**Endpoint:** `POST /api/v1/auth/forgot-password`
+
+Request a password reset email. For security, this endpoint always returns success regardless of whether the email exists.
+
+**Request Body:**
+```json
+{
+  "email": "user@example.com"
+}
+```
+
+**Response:** 200 OK
+```json
+{
+  "message": "If an account with that email exists, a password reset link has been sent"
+}
+```
+
+**Rate Limiting:** 3 requests per minute per IP address.
+
+#### Reset Password
+
+**Endpoint:** `POST /api/v1/auth/reset-password`
+
+Reset password using a token received via email.
+
+**Request Body:**
+```json
+{
+  "token": "reset-token-from-email",
+  "newPassword": "newSecurePassword456"
+}
+```
+
+**Response:** 200 OK
+```json
+{
+  "message": "Password reset successfully"
+}
+```
+
+**Security Notes:**
+- Reset tokens expire after 1 hour
+- Tokens are single-use and invalidated after successful reset
+- All existing sessions are invalidated upon password reset
+- Rate limited to 5 requests per minute per IP address
+
 #### Get User Profile
 
 **Endpoint:** `GET /api/v1/users/me`
@@ -351,7 +419,7 @@ Authorization: Bearer <access_token>
 
 **Endpoint:** `POST /api/v1/users/me/change-password`
 
-Change the authenticated user's password.
+Change the authenticated user's password. Sends a notification email and invalidates all other sessions.
 
 **Headers:**
 ```
@@ -367,6 +435,16 @@ Authorization: Bearer <access_token>
 ```
 
 **Response:** 200 OK
+```json
+{
+  "message": "Password changed successfully"
+}
+```
+
+**Security Notes:**
+- Requires current password verification
+- Sends email notification to the user
+- Invalidates all refresh tokens (logs out other sessions)
 
 ### Device Management
 
