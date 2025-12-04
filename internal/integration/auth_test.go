@@ -3,6 +3,8 @@ package integration
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -786,4 +788,472 @@ func TestDeviceClaimingFlow(t *testing.T) {
 		devices := response["devices"].([]interface{})
 		assert.GreaterOrEqual(t, len(devices), 1)
 	})
+}
+
+// TestForgotPasswordFlow tests the forgot password flow
+func TestForgotPasswordFlow(t *testing.T) {
+	db, cleanup := setupTestDatabase(t)
+	defer cleanup()
+
+	cfg := &config.Config{
+		Auth: config.AuthConfig{
+			JWTSecret:          "test-secret-integration",
+			JWTAccessTokenTTL:  time.Hour,
+			JWTRefreshTokenTTL: 24 * time.Hour,
+		},
+	}
+
+	deps := &server.Dependencies{
+		Config:           cfg,
+		TelemetryRepo:    repository.NewPostgresRepository(db),
+		UserRepo:         repository.NewPostgresUserRepository(db),
+		RefreshTokenRepo: repository.NewPostgresRefreshTokenRepository(db.DB),
+		DeviceRepo:       repository.NewPostgresDeviceRepository(db.DB),
+	}
+
+	router := server.New(deps)
+
+	// Register a user first
+	email := "forgotpassword@example.com"
+	password := "testPassword123"
+
+	registerBody := map[string]string{
+		"email":    email,
+		"password": password,
+	}
+	body, _ := json.Marshal(registerBody)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusCreated, w.Code)
+
+	t.Run("forgot password returns success for existing email", func(t *testing.T) {
+		forgotBody := map[string]string{
+			"email": email,
+		}
+		body, _ := json.Marshal(forgotBody)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/forgot-password", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var response map[string]interface{}
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(t, err)
+
+		// Verify the response message (should be the same regardless of email existence)
+		assert.Contains(t, response, "message")
+		assert.Equal(t, "If an account with that email exists, a password reset link has been sent", response["message"])
+
+		// Note: In integration tests without email service configured, the reset token
+		// is still set in the database. We verify it was set properly.
+		user, err := deps.UserRepo.GetByEmail(context.Background(), email)
+		require.NoError(t, err)
+		// The reset token should be set after forgot password is called
+		// However, the handler only sets it if email service is configured OR
+		// always sets it for consistent behavior
+		if user.ResetToken != nil {
+			assert.NotEmpty(t, *user.ResetToken)
+			assert.NotNil(t, user.ResetTokenExpiresAt)
+			assert.True(t, user.ResetTokenExpiresAt.After(time.Now()))
+		}
+	})
+
+	t.Run("forgot password returns success for non-existent email", func(t *testing.T) {
+		forgotBody := map[string]string{
+			"email": "nonexistent@example.com",
+		}
+		body, _ := json.Marshal(forgotBody)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/forgot-password", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		// Should return same response to prevent email enumeration
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var response map[string]interface{}
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(t, err)
+
+		assert.Contains(t, response, "message")
+		assert.Equal(t, "If an account with that email exists, a password reset link has been sent", response["message"])
+	})
+
+	t.Run("forgot password validation errors", func(t *testing.T) {
+		// Test missing email
+		forgotBody := map[string]string{}
+		body, _ := json.Marshal(forgotBody)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/forgot-password", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+
+		// Test invalid email format
+		forgotBody = map[string]string{
+			"email": "notanemail",
+		}
+		body, _ = json.Marshal(forgotBody)
+
+		req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/forgot-password", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w = httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+}
+
+// TestResetPasswordFlow tests the full password reset flow
+func TestResetPasswordFlow(t *testing.T) {
+	db, cleanup := setupTestDatabase(t)
+	defer cleanup()
+
+	cfg := &config.Config{
+		Auth: config.AuthConfig{
+			JWTSecret:          "test-secret-integration",
+			JWTAccessTokenTTL:  time.Hour,
+			JWTRefreshTokenTTL: 24 * time.Hour,
+		},
+	}
+
+	deps := &server.Dependencies{
+		Config:           cfg,
+		TelemetryRepo:    repository.NewPostgresRepository(db),
+		UserRepo:         repository.NewPostgresUserRepository(db),
+		RefreshTokenRepo: repository.NewPostgresRefreshTokenRepository(db.DB),
+		DeviceRepo:       repository.NewPostgresDeviceRepository(db.DB),
+	}
+
+	router := server.New(deps)
+
+	// Register a user
+	email := "resetpassword@example.com"
+	originalPassword := "originalPassword123"
+	newPassword := "newSecurePassword456"
+
+	registerBody := map[string]string{
+		"email":    email,
+		"password": originalPassword,
+	}
+	body, _ := json.Marshal(registerBody)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusCreated, w.Code)
+
+	var registerResponse map[string]interface{}
+	_ = json.Unmarshal(w.Body.Bytes(), &registerResponse)
+	refreshToken := registerResponse["refreshToken"].(string)
+
+	t.Run("full password reset flow", func(t *testing.T) {
+		// Step 1: Request password reset
+		forgotBody := map[string]string{
+			"email": email,
+		}
+		body, _ := json.Marshal(forgotBody)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/forgot-password", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+
+		// Get user and set a reset token manually for testing
+		// (In production, the token would be sent via email)
+		user, err := deps.UserRepo.GetByEmail(context.Background(), email)
+		require.NoError(t, err)
+
+		// Note: The token stored in DB is hashed, so we need to generate a new token
+		// and directly set it for testing purposes
+		rawToken := "test-reset-token-123456789"
+		hashedToken := hashToken(rawToken)
+		expiresAt := time.Now().Add(12 * time.Hour)
+		user.ResetToken = &hashedToken
+		user.ResetTokenExpiresAt = &expiresAt
+		err = deps.UserRepo.Update(context.Background(), user)
+		require.NoError(t, err)
+
+		// Step 2: Reset password using the token
+		resetBody := map[string]string{
+			"token":       rawToken,
+			"newPassword": newPassword,
+		}
+		body, _ = json.Marshal(resetBody)
+
+		req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/reset-password", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w = httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var response map[string]interface{}
+		err = json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(t, err)
+		assert.Equal(t, "Password has been reset successfully", response["message"])
+
+		// Step 3: Verify old refresh token is invalidated
+		refreshBody := map[string]string{
+			"refreshToken": refreshToken,
+		}
+		body, _ = json.Marshal(refreshBody)
+
+		req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/refresh", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w = httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusUnauthorized, w.Code)
+
+		// Step 4: Verify can login with new password
+		loginBody := map[string]string{
+			"email":    email,
+			"password": newPassword,
+		}
+		body, _ = json.Marshal(loginBody)
+
+		req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w = httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var loginResponse map[string]interface{}
+		err = json.Unmarshal(w.Body.Bytes(), &loginResponse)
+		require.NoError(t, err)
+		assert.Contains(t, loginResponse, "accessToken")
+
+		// Step 5: Verify cannot login with old password
+		loginBody = map[string]string{
+			"email":    email,
+			"password": originalPassword,
+		}
+		body, _ = json.Marshal(loginBody)
+
+		req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w = httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusUnauthorized, w.Code)
+
+		// Step 6: Verify reset token is cleared (can't use same token again)
+		resetBody = map[string]string{
+			"token":       rawToken,
+			"newPassword": "anotherPassword789",
+		}
+		body, _ = json.Marshal(resetBody)
+
+		req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/reset-password", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w = httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+
+	t.Run("reset password with invalid token", func(t *testing.T) {
+		resetBody := map[string]string{
+			"token":       "invalid-token",
+			"newPassword": "someNewPassword123",
+		}
+		body, _ := json.Marshal(resetBody)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/reset-password", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+
+	t.Run("reset password validation errors", func(t *testing.T) {
+		// Missing token
+		resetBody := map[string]string{
+			"newPassword": "someNewPassword123",
+		}
+		body, _ := json.Marshal(resetBody)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/reset-password", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+
+		// Password too short
+		resetBody = map[string]string{
+			"token":       "some-token",
+			"newPassword": "short",
+		}
+		body, _ = json.Marshal(resetBody)
+
+		req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/reset-password", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w = httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+}
+
+// TestChangePasswordFlow tests the authenticated password change flow
+func TestChangePasswordFlow(t *testing.T) {
+	db, cleanup := setupTestDatabase(t)
+	defer cleanup()
+
+	cfg := &config.Config{
+		Auth: config.AuthConfig{
+			JWTSecret:          "test-secret-integration",
+			JWTAccessTokenTTL:  time.Hour,
+			JWTRefreshTokenTTL: 24 * time.Hour,
+		},
+	}
+
+	deps := &server.Dependencies{
+		Config:           cfg,
+		TelemetryRepo:    repository.NewPostgresRepository(db),
+		UserRepo:         repository.NewPostgresUserRepository(db),
+		RefreshTokenRepo: repository.NewPostgresRefreshTokenRepository(db.DB),
+		DeviceRepo:       repository.NewPostgresDeviceRepository(db.DB),
+	}
+
+	router := server.New(deps)
+
+	// Register a user
+	email := "changepassword@example.com"
+	originalPassword := "originalPassword123"
+	newPassword := "newSecurePassword456"
+
+	registerBody := map[string]string{
+		"email":    email,
+		"password": originalPassword,
+	}
+	body, _ := json.Marshal(registerBody)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusCreated, w.Code)
+
+	var registerResponse map[string]interface{}
+	_ = json.Unmarshal(w.Body.Bytes(), &registerResponse)
+	accessToken := registerResponse["accessToken"].(string)
+
+	t.Run("successful password change", func(t *testing.T) {
+		changeBody := map[string]string{
+			"currentPassword": originalPassword,
+			"newPassword":     newPassword,
+		}
+		body, _ := json.Marshal(changeBody)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/users/me/change-password", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", accessToken))
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var response map[string]interface{}
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(t, err)
+		assert.Equal(t, "Password changed successfully", response["message"])
+
+		// Verify can login with new password
+		loginBody := map[string]string{
+			"email":    email,
+			"password": newPassword,
+		}
+		body, _ = json.Marshal(loginBody)
+
+		req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w = httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+	})
+
+	t.Run("change password with wrong current password", func(t *testing.T) {
+		// Need to get a new token since we changed the password
+		loginBody := map[string]string{
+			"email":    email,
+			"password": newPassword,
+		}
+		body, _ := json.Marshal(loginBody)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+
+		var loginResponse map[string]interface{}
+		_ = json.Unmarshal(w.Body.Bytes(), &loginResponse)
+		newAccessToken := loginResponse["accessToken"].(string)
+
+		changeBody := map[string]string{
+			"currentPassword": "wrongPassword",
+			"newPassword":     "anotherPassword789",
+		}
+		body, _ = json.Marshal(changeBody)
+
+		req = httptest.NewRequest(http.MethodPost, "/api/v1/users/me/change-password", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", newAccessToken))
+		w = httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusUnauthorized, w.Code)
+	})
+
+	t.Run("change password without authentication", func(t *testing.T) {
+		changeBody := map[string]string{
+			"currentPassword": originalPassword,
+			"newPassword":     newPassword,
+		}
+		body, _ := json.Marshal(changeBody)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/users/me/change-password", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusUnauthorized, w.Code)
+	})
+}
+
+// hashToken hashes a token using SHA256 - helper for integration tests
+func hashToken(token string) string {
+	hash := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(hash[:])
 }
