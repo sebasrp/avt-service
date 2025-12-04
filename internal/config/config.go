@@ -19,7 +19,8 @@ type Config struct {
 
 // ServerConfig holds server-related configuration
 type ServerConfig struct {
-	Port string
+	Port    string
+	DevMode bool // Enable development-only features (e.g., password reset UI)
 }
 
 // AuthConfig holds authentication-related configuration
@@ -58,7 +59,8 @@ type DatabaseConfig struct {
 func Load() (*Config, error) {
 	cfg := &Config{
 		Server: ServerConfig{
-			Port: getEnv("PORT", "8080"),
+			Port:    getEnv("PORT", "8080"),
+			DevMode: getEnvAsBool("DEV_MODE", false),
 		},
 		Database: DatabaseConfig{
 			URL:                   os.Getenv("DATABASE_URL"),
@@ -152,6 +154,19 @@ func getEnvAsDuration(key, defaultValue string) time.Duration {
 	if err != nil {
 		defaultDuration, _ := time.ParseDuration(defaultValue)
 		return defaultDuration
+	}
+	return value
+}
+
+// getEnvAsBool gets an environment variable as a boolean or returns a default value
+func getEnvAsBool(key string, defaultValue bool) bool {
+	valueStr := os.Getenv(key)
+	if valueStr == "" {
+		return defaultValue
+	}
+	value, err := strconv.ParseBool(valueStr)
+	if err != nil {
+		return defaultValue
 	}
 	return value
 }

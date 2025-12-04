@@ -39,16 +39,29 @@ func main() {
 
 	// Initialize email service if configured
 	var emailService email.Service
-	if cfg.Email.Provider == "mailgun" && cfg.Email.MailgunAPIKey != "" {
-		emailService = email.NewMailgunService(
-			cfg.Email.MailgunDomain,
-			cfg.Email.MailgunAPIKey,
+	switch cfg.Email.Provider {
+	case "mailgun":
+		if cfg.Email.MailgunAPIKey != "" {
+			emailService = email.NewMailgunService(
+				cfg.Email.MailgunDomain,
+				cfg.Email.MailgunAPIKey,
+				cfg.Email.FromAddress,
+				cfg.Email.FromName,
+				cfg.Email.AppURL,
+			)
+			log.Println("Email service initialized with Mailgun provider")
+		} else {
+			log.Println("Mailgun provider selected but API key not configured - emails disabled")
+		}
+	case "console":
+		// Console email service for local development - logs emails to stdout
+		emailService = email.NewConsoleService(
 			cfg.Email.FromAddress,
 			cfg.Email.FromName,
 			cfg.Email.AppURL,
 		)
-		log.Println("Email service initialized with Mailgun provider")
-	} else {
+		log.Println("Email service initialized with Console provider (logs to stdout)")
+	default:
 		log.Println("Email service not configured - password reset emails will be disabled")
 	}
 
@@ -64,6 +77,10 @@ func main() {
 
 	// Create and start the server
 	srv := server.New(deps)
+
+	if cfg.Server.DevMode {
+		log.Println("Development mode enabled - password reset UI available at /reset-password")
+	}
 
 	log.Printf("Starting server on port %s", cfg.Server.Port)
 	if err := srv.Run(":" + cfg.Server.Port); err != nil {

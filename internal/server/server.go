@@ -2,6 +2,7 @@
 package server
 
 import (
+	_ "embed"
 	"net/http"
 	"time"
 
@@ -20,6 +21,9 @@ import (
 	"github.com/sebasr/avt-service/internal/middleware"
 	"github.com/sebasr/avt-service/internal/repository"
 )
+
+//go:embed static/reset-password.html
+var resetPasswordHTML []byte
 
 // RequestIDMiddleware adds a unique request ID to each request
 func RequestIDMiddleware() gin.HandlerFunc {
@@ -191,6 +195,13 @@ func New(deps *Dependencies) *gin.Engine {
 	// Legacy routes (for backward compatibility)
 	router.POST("/api/telemetry", authMiddleware.Optional(), telemetryHandler.HandlePost)
 	router.POST("/api/telemetry/batch", authMiddleware.Optional(), telemetryHandler.HandleBatchPost)
+
+	// Development-only routes (password reset UI)
+	if deps.Config.Server.DevMode {
+		router.GET("/reset-password", func(c *gin.Context) {
+			c.Data(http.StatusOK, "text/html; charset=utf-8", resetPasswordHTML)
+		})
+	}
 
 	return router
 }
