@@ -185,6 +185,12 @@ jobs:
             cat > .env << EOF
             DB_PASSWORD=${{ secrets.DB_PASSWORD }}
             GITHUB_REPOSITORY=${{ github.repository }}
+            JWT_SECRET=${{ secrets.JWT_SECRET }}
+            MAILGUN_DOMAIN=${{ secrets.MAILGUN_DOMAIN }}
+            MAILGUN_API_KEY=${{ secrets.MAILGUN_API_KEY }}
+            EMAIL_FROM_ADDRESS=${{ secrets.EMAIL_FROM_ADDRESS }}
+            EMAIL_FROM_NAME=${{ secrets.EMAIL_FROM_NAME }}
+            APP_URL=${{ secrets.APP_URL }}
             EOF
             
             # Log in to GitHub Container Registry
